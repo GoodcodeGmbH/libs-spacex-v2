@@ -51,7 +51,7 @@ public class ClientHandler extends Thread {
             case EncryptedMessageObject.KIND_ACCESS:
                 EJSONObject access = new EJSONObject();
                 // ANNOUNCE <myId> <peerId> (not encrypted)
-                if (m.getPayload().contains("ANNOUNCE") && m.getPayload().contains(spaceForCallback.geId())) {
+                if (m.getPayload().contains("ANNOUNCE") && m.getPayload().contains(spaceForCallback.geSpaceId())) {
                     String[] split = m.getPayload().split("\\s");
                     access.putString("peer", split[2]);
                     access.putString("remoteHost", clientHost);

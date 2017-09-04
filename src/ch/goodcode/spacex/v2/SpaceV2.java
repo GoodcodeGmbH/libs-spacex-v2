@@ -29,14 +29,15 @@ public class SpaceV2 {
 
     // ======================================================================================================================================
     private static final int PURGE_LIMIT = 50;
-    private static final long PURGE_TIMEOUT = GOOUtils.TIME_HOURS;
-    private static final int OPTIMAL_BATCH_BOUNDARY = 100;
-    private static final int OPTIMAL_BATCH_DIVISOR = 10000;
+    private static final long PURGE_TIMEOUT = 20 * GOOUtils.TIME_MINUTES;
+    private static final int MAGIC_BATCH_BOUNDARY = 50;
+    private static final int MAGIC_BATCH_DIVISOR = 20_000;
+    private static final int MAGIC_ASYNCH_BOUNDARY = 10_000;
     private static int LL;
     private final boolean IS_REAL_SPACE;
     private String myId;
 
-    public String geId() {
+    public String geSpaceId() {
         return myId;
     }
 
@@ -168,47 +169,48 @@ public class SpaceV2 {
         return "";
     }
 
-    public void stop() {
+    public void stop() throws Exception {
         for (Map.Entry<Long, EntityManager> entry : ems.entrySet()) {
             EntityManager em = entry.getValue();
             em.close();
         }
+        ems.clear();
         emf.close();
     }
 
-    private EntityManager em(Thread t) {
+    private EntityManager em(Thread currentThread) {
         if (emsC > PURGE_LIMIT) {
             emsC = 0L;
             (new Thread(new Runnable() {
                 @Override
                 public void run() {
                     long now = System.currentTimeMillis();
-                    ArrayList<Long> tbDel = new ArrayList<>();
+                    ArrayList<Long> tbDelTids = new ArrayList<>();
                     for (Map.Entry<Long, Long> entry : emsT.entrySet()) {
-                        Long key = entry.getKey();
-                        Long value = entry.getValue();
-                        if (now - value > PURGE_TIMEOUT) {
-                            tbDel.add(key);
+                        Long tid = entry.getKey();
+                        Long lasrtSeen = entry.getValue();
+                        if (now - lasrtSeen > PURGE_TIMEOUT) {
+                            tbDelTids.add(tid);
                         }
                     }
-                    for (Long long1 : tbDel) {
-                        ems.remove(long1);
-                        emsT.remove(long1);
+                    for (Long threadID : tbDelTids) {
+                        ems.remove(threadID);
+                        emsT.remove(threadID);
                     }
                 }
             })).start();
         }
-        if (!ems.containsKey(t.getId())) {
-            ems.put(t.getId(), emf.createEntityManager());
+        if (!ems.containsKey(currentThread.getId())) {
+            ems.put(currentThread.getId(), emf.createEntityManager());
             emsC++;
         }
-        emsT.put(t.getId(), System.currentTimeMillis());
-        return ems.get(t.getId());
+        emsT.put(currentThread.getId(), System.currentTimeMillis());
+        return ems.get(currentThread.getId());
     }
 
     // ========================================================================
     // Space utility methods
-    // (they very well may use th epublic api of course for meta types entities)
+    // (they very well may use the public api of course for meta types entities)
     private <T> void screate(T item) {
 
     }
@@ -221,23 +223,46 @@ public class SpaceV2 {
 
     }
 
-    private <T> void screate(List<T> item) {
-
+    private <T> void screate(int size, List<T> item) {
+        if(size < MAGIC_ASYNCH_BOUNDARY) {
+            
+        } else {
+            
+        }
     }
 
-    private <T> void supdate(List<T> item) {
-
+    private <T> void supdate(int size, List<T> item) {
+        if(size < MAGIC_ASYNCH_BOUNDARY) {
+            
+        } else {
+            
+        }
     }
 
-    private <T> void sdelete(List<T> item) {
-
+    private <T> void sdelete(int size, List<T> item) {
+        if(size < MAGIC_ASYNCH_BOUNDARY) {
+            
+        } else {
+            
+        }
     }
 
     // ========================================================================
     // PUBLIC API CRUD
     // =====================
+    
     /**
      *
+     * ----------------------------------------------------------------
+     * General behavior for persistency are the following:
+     * 1) the proper thread-related entity manager is fetched
+     * 2) JPA crud transaction executed
+     * 2a) if NOT ok, then rollback transaction, warn and keep going
+     * without any other JPA invokations;
+     * 2b) else apply JPA crud action and finally:
+     * - check for hyperspace mod, if yes apply screate(...) - ( may be asynch) see ref.
+     * - apply createForCacheListeners(...) -(may be asynch) see ref.
+     * 
      * @param <T>
      * @param item
      */
@@ -254,8 +279,8 @@ public class SpaceV2 {
                 if (IS_REAL_SPACE) {
                     screate(item);
                 }
+                createForCacheListeners(item);
             }
-            createForCacheListeners(item);
         }
     }
 
@@ -312,7 +337,7 @@ public class SpaceV2 {
      */
     public <T> void create(List<T> items) {
         int size = items.size();
-        if (size < OPTIMAL_BATCH_BOUNDARY) {
+        if (size < MAGIC_BATCH_BOUNDARY) {
             for (T it : items) {
                 create(it);
             }
@@ -323,7 +348,7 @@ public class SpaceV2 {
                 int i = 0;
                 for (T it : items) {
                     em.persist(it);
-                    if ((i % OPTIMAL_BATCH_DIVISOR) == 0) {
+                    if ((i % MAGIC_BATCH_DIVISOR) == 0) {
                         em.getTransaction().commit();
                         em.clear();
                         em.getTransaction().begin();
@@ -336,7 +361,7 @@ public class SpaceV2 {
                     em.getTransaction().rollback();
                 } else {
                     if (IS_REAL_SPACE) {
-                        screate(items);
+                        screate(size, items);
                     }
                     createForCacheListeners(items);
                 }
@@ -351,7 +376,7 @@ public class SpaceV2 {
      */
     public <T> void update(List<T> items) {
         int size = items.size();
-        if (size < OPTIMAL_BATCH_BOUNDARY) {
+        if (size < MAGIC_BATCH_BOUNDARY) {
             for (T it : items) {
                 update(it);
             }
@@ -362,7 +387,7 @@ public class SpaceV2 {
                 int i = 0;
                 for (T it : items) {
                     em.merge(it);
-                    if ((i % OPTIMAL_BATCH_DIVISOR) == 0) {
+                    if ((i % MAGIC_BATCH_DIVISOR) == 0) {
                         em.getTransaction().commit();
                         em.clear();
                         em.getTransaction().begin();
@@ -375,7 +400,7 @@ public class SpaceV2 {
                     em.getTransaction().rollback();
                 } else {
                     if (IS_REAL_SPACE) {
-                        supdate(items);
+                        supdate(size, items);
                     }
                     updateForCacheListeners(items);
                 }
@@ -390,7 +415,7 @@ public class SpaceV2 {
      */
     public <T> void delete(List<T> items) {
         int size = items.size();
-        if (size < OPTIMAL_BATCH_BOUNDARY) {
+        if (size < MAGIC_BATCH_BOUNDARY) {
             for (T it : items) {
                 delete(it);
             }
@@ -401,7 +426,7 @@ public class SpaceV2 {
                 int i = 0;
                 for (T it : items) {
                     em.remove(it);
-                    if ((i % OPTIMAL_BATCH_DIVISOR) == 0) {
+                    if ((i % MAGIC_BATCH_DIVISOR) == 0) {
                         em.getTransaction().commit();
                         em.clear();
                         em.getTransaction().begin();
@@ -414,7 +439,7 @@ public class SpaceV2 {
                     em.getTransaction().rollback();
                 } else {
                     if (IS_REAL_SPACE) {
-                        sdelete(items);
+                        sdelete(size, items);
                     }
                     deleteForCacheListeners(items);
                 }
