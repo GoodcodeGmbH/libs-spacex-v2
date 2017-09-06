@@ -121,7 +121,7 @@ public class SpaceV2 {
      * @throws Exception
      */
     public void start() throws Exception {
-        LOG.o("Starting SV2 instance...");
+        //LOG.o("Starting SV2 instance...");
         if (optUser == null) {
             emf = Persistence.createEntityManagerFactory(
                     optHostFull);
@@ -143,7 +143,7 @@ public class SpaceV2 {
         // put in place MEM TIER
         // put in place COM/P2P TIER
         if (IS_REAL_SPACE) {
-            LOG.o("SV2 Space tier detected, starting it...");
+            //LOG.o("SV2 Space tier detected, starting it...");
             server = new MiniServer(this, spaceConf.getInteger("listeningPort"));
             server.startInThread();
 
@@ -560,8 +560,9 @@ public class SpaceV2 {
     /**
      *
      * Warning: the returned object may be HOLLOW, i.e. not fully initialized.
-     * Note: use this if you need an entity only to build a reference to it
-     * in some other entities. 
+     * Note: use this if you need an entity only to build a reference to it in
+     * some other entities.
+     *
      * @param <T>
      * @param clazz
      * @param someStringUidJPAViaAnnotationsDescribed
@@ -588,8 +589,9 @@ public class SpaceV2 {
 
     /**
      * Warning: the returned object may be HOLLOW, i.e. not fully initialized.
-     * Note: use this if you need an entity only to build a reference to it
-     * in some other entities. 
+     * Note: use this if you need an entity only to build a reference to it in
+     * some other entities.
+     *
      * @param <T>
      * @param clazz
      * @param someLongIdJPAViaAnnotationsDescribed
@@ -617,8 +619,9 @@ public class SpaceV2 {
 
     /**
      * Warning: the returned object may be HOLLOW, i.e. not fully initialized.
-     * Note: use this if you need an entity only to build a reference to it
-     * in some other entities. 
+     * Note: use this if you need an entity only to build a reference to it in
+     * some other entities.
+     *
      * @param <T>
      * @param clazz
      * @param someIntIdJPAViaAnnotationsDescribed
@@ -641,7 +644,7 @@ public class SpaceV2 {
      */
     public <T> List<T> findWhere(Class<T> clazz, String jpaclause, HashMap<String, String> params, String orderByClause) {
         TypedQuery<T> query = em(Thread.currentThread()).createQuery(
-                "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause,
+                "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + orderByClause,
                 clazz);
         if (params != null) {
             for (Map.Entry<String, String> entry : params.entrySet()) {
@@ -664,7 +667,7 @@ public class SpaceV2 {
      */
     public <T> T findWhereSingle(Class<T> clazz, String jpaclause, HashMap<String, String> params, String orderByClause) {
         TypedQuery<T> query = em(Thread.currentThread()).createQuery(
-                "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause,
+                "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + orderByClause,
                 clazz);
         if (params != null) {
             for (Map.Entry<String, String> entry : params.entrySet()) {
@@ -713,7 +716,6 @@ public class SpaceV2 {
     // ========================================================================
     // PUBLIC API Retrieval (SCRIPTED and backward compatible with SpaceX and HibernationProject)
     // =====================
-     
     public <T> List<T> findAll_MULTILIKE_restricted(Class<T> clazz, String[] names, String[] values, int comp) {
         return findAll_MULTILIKE_restricted(false, null, clazz, names, values, comp);
     }
@@ -735,47 +737,92 @@ public class SpaceV2 {
     }
 
     public <T> List<T> findAll_MULTILIKE_restricted(boolean sortOrder, String sortField, Class<T> clazz, String[] names, String[] values, int comp) {
-        if(sortField != null) {
-            
+        String no = "LIKE";
+        if (comp != 0) {
+            no = "NOT LIKE";
         }
-        return null;
+        if (sortField != null) {
+            String so = "asc";
+            if (sortOrder) {
+                so = "desc";
+            }
+            StringBuilder jpa = new StringBuilder();
+            jpa.append("c.").append(names[0]).append(" ").append(no).append(" '%").append(values[0]).append("%'");
+            for (int i = 1; i < values.length; i++) {
+                jpa.append(" AND c.").append(names[i]).append(" ").append(no).append(" '%").append(values[i]).append("%'");
+            }
+            return findWhere(clazz, jpa.toString(), null, "order by c." + sortField + " " + so);
+        } else {
+            StringBuilder jpa = new StringBuilder();
+            jpa.append("c.").append(names[0]).append(" ").append(no).append(" '%").append(values[0]).append("%'");
+            for (int i = 1; i < values.length; i++) {
+                jpa.append(" AND c.").append(names[i]).append(" ").append(no).append(" '%").append(values[i]).append("%'");
+            }
+            return findWhere(clazz, jpa.toString(), null);
+        }
     }
 
     public <T> List<T> findAll_MATCH(boolean sortOrder, String sortField, Class<T> clazz, String name, String value, int comp) {
-        if(sortField != null) {
-            
+        if (sortField != null) {
+            String so = "asc";
+            if (sortOrder) {
+                so = "desc";
+            }
+            if (comp == 0) {
+                return findWhere(clazz, "c." + name + " = '" + value + "'", null, "order by c." + sortField + " " + so);
+            } else {
+                return findWhere(clazz, "c." + name + " != '" + value + "'", null, "order by c." + sortField + " " + so);
+            }
+        } else {
+            if (comp == 0) {
+                return findWhere(clazz, "c." + name + " = '" + value + "'", null);
+            } else {
+                return findWhere(clazz, "c." + name + " != '" + value + "'", null);
+            }
         }
-        return null;
     }
 
     public <T> List<T> findAll_MATCH_INTEGERANDSTRING(boolean sortOrder, String sortField, Class<T> clazz, String name, String value, String intName, int intValue) {
-        if(sortField != null) {
-            
+        if (sortField != null) {
+            String so = "asc";
+            if (sortOrder) {
+                so = "desc";
+            }
+            return findWhere(clazz, "c." + name + " = '" + value + "' AND c." + intName + " = " + intValue, null, "order by c." + sortField + " " + so);
+        } else {
+            return findWhere(clazz, "c." + name + " = '" + value + "' AND c." + intName + " = " + intValue, null);
         }
-        return null;
     }
 
     public <T> List<T> findAll_LIKE(boolean sortOrder, String sortField, Class<T> clazz, String name, String likeValue, int comp) {
-        if(sortField != null) {
-            if(comp == 0) {
-                
+        if (sortField != null) {
+            String so = "asc";
+            if (sortOrder) {
+                so = "desc";
+            }
+            if (comp == 0) {
+                return findWhere(clazz, "c." + name + " LIKE '%" + likeValue + "%'", null, "order by c." + sortField + " " + so);
             } else {
-                
+                return findWhere(clazz, "c." + name + " NOT LIKE '%" + likeValue + "%'", null, "order by c." + sortField + " " + so);
             }
         } else {
-            if(comp == 0) {
-                
+            if (comp == 0) {
+                return findWhere(clazz, "c." + name + " LIKE '%" + likeValue + "%'", null);
             } else {
-                
+                return findWhere(clazz, "c." + name + " NOT LIKE '%" + likeValue + "%'", null);
             }
         }
-        return null;
     }
 
     public <T> List<T> findAll_TIME_MATCH(boolean sortOrder, String sortField, Class<T> clazz, String name, String value, int comp, String timeName, long from, long to) {
-        if(sortField != null) {
-            
+        if (sortField != null) {
+            String so = "asc";
+            if (sortOrder) {
+                so = "desc";
+            }
+            return findWhere(clazz, "c." + timeName + " >= " + from + " AND c." + timeName + " < " + to + " AND c." + name + " = '" + value + "'", null, "order by c." + sortField + " " + so);
+        } else {
+            return findWhere(clazz, "c." + timeName + " >= " + from + " AND c." + timeName + " < " + to + " AND c." + name + " = '" + value + "'", null);
         }
-        return null;
     }
 }
