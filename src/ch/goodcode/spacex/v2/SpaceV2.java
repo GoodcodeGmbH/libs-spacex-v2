@@ -47,11 +47,20 @@ public class SpaceV2 {
     private final HashMap<Long, Long> emsT = new HashMap<>();
     private long emsC = 0L;
     private final EJSONObject odbConf;
+    private final String optHostFull;
+    private String optUser, optPass;
+    // -
     private final EJSONObject spaceConf;
     private MiniServer server;
     private SpacePeer[] peers;
     private final HashMap<String, MiniClient> clients = new HashMap<>();
 
+    /**
+     *
+     * @param logLevel
+     * @param odbConfFilePath
+     * @param spaceConfFilePath
+     */
     public SpaceV2(int logLevel, String odbConfFilePath, String spaceConfFilePath) {
         LL = logLevel;
         IS_REAL_SPACE = spaceConfFilePath != null;
@@ -61,16 +70,76 @@ public class SpaceV2 {
         } else {
             spaceConf = null;
         }
+        optHostFull = null;
     }
 
+    /**
+     * For DEBUG Constructor
+     *
+     * @param logLevel
+     * @param hostStringFull
+     * @param user
+     * @param pass
+     */
+    public SpaceV2(int logLevel, String hostStringFull, String user, String pass) {
+        LL = logLevel;
+        IS_REAL_SPACE = false;
+        odbConf = null;
+        spaceConf = null;
+        optHostFull = hostStringFull;
+        optUser = user;
+        optPass = pass;
+
+    }
+
+    /**
+     * For DEBUG Constructor
+     *
+     * @param logLevel
+     * @param odbFilePath
+     */
+    public SpaceV2(int logLevel, String odbFilePath) {
+        LL = logLevel;
+        IS_REAL_SPACE = false;
+        odbConf = null;
+        spaceConf = null;
+        optHostFull = odbFilePath;
+    }
+
+    /**
+     * For DEBUG Constructor
+     *
+     * @param logLevel
+     * @param debugId
+     */
+    public SpaceV2(int logLevel, long debugId) {
+        this(logLevel, "$objectdb/db/debug_" + debugId + ".odb");
+    }
+
+    /**
+     *
+     * @throws Exception
+     */
     public void start() throws Exception {
         LOG.o("Starting SV2 instance...");
-        Map<String, String> properties = new HashMap<>();
-        properties.put("javax.persistence.jdbc.user", odbConf.getString("odbUser"));
-        properties.put("javax.persistence.jdbc.password", odbConf.getString("odbPass"));
-        emf = Persistence.createEntityManagerFactory(
-                "objectdb://" + odbConf.getString("odbHost") + ":" + odbConf.getInteger("odbPort") + "/" + odbConf.getString("memUid") + ".odb",
-                properties);
+        if (optUser == null) {
+            emf = Persistence.createEntityManagerFactory(
+                    optHostFull);
+        } else if (odbConf == null) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put("javax.persistence.jdbc.user", optUser);
+            properties.put("javax.persistence.jdbc.password", optPass);
+            emf = Persistence.createEntityManagerFactory(
+                    optHostFull,
+                    properties);
+        } else {
+            Map<String, String> properties = new HashMap<>();
+            properties.put("javax.persistence.jdbc.user", odbConf.getString("odbUser"));
+            properties.put("javax.persistence.jdbc.password", odbConf.getString("odbPass"));
+            emf = Persistence.createEntityManagerFactory(
+                    "objectdb://" + odbConf.getString("odbHost") + ":" + odbConf.getInteger("odbPort") + "/" + odbConf.getString("memUid") + ".odb",
+                    properties);
+        }
         // put in place MEM TIER
         // put in place COM/P2P TIER
         if (IS_REAL_SPACE) {
@@ -88,6 +157,12 @@ public class SpaceV2 {
 
     private final HashMap<String, ILevel3Updatable<?>> LEVEL3CACHELISTENERS = new HashMap<>();
 
+    /**
+     *
+     * @param <T>
+     * @param clazz
+     * @param aLevel3CacheListener
+     */
     public <T> void registerL3CacheListener(Class<T> clazz, ILevel3Updatable<T> aLevel3CacheListener) {
         LEVEL3CACHELISTENERS.put(clazz.getSimpleName(), aLevel3CacheListener);
     }
@@ -169,6 +244,10 @@ public class SpaceV2 {
         return "";
     }
 
+    /**
+     *
+     * @throws Exception
+     */
     public void stop() throws Exception {
         for (Map.Entry<Long, EntityManager> entry : ems.entrySet()) {
             EntityManager em = entry.getValue();
@@ -223,46 +302,43 @@ public class SpaceV2 {
 
     }
 
-    private <T> void screate(int size, List<T> item) {
-        if(size < MAGIC_ASYNCH_BOUNDARY) {
-            
+    private <T> void screate(int size, List<T> items) {
+        if (size < MAGIC_ASYNCH_BOUNDARY) {
+
         } else {
-            
+
         }
     }
 
-    private <T> void supdate(int size, List<T> item) {
-        if(size < MAGIC_ASYNCH_BOUNDARY) {
-            
+    private <T> void supdate(int size, List<T> items) {
+        if (size < MAGIC_ASYNCH_BOUNDARY) {
+
         } else {
-            
+
         }
     }
 
-    private <T> void sdelete(int size, List<T> item) {
-        if(size < MAGIC_ASYNCH_BOUNDARY) {
-            
+    private <T> void sdelete(int size, List<T> items) {
+        if (size < MAGIC_ASYNCH_BOUNDARY) {
+
         } else {
-            
+
         }
     }
 
     // ========================================================================
     // PUBLIC API CRUD
     // =====================
-    
     /**
      *
-     * ----------------------------------------------------------------
-     * General behavior for persistency are the following:
-     * 1) the proper thread-related entity manager is fetched
-     * 2) JPA crud transaction executed
-     * 2a) if NOT ok, then rollback transaction, warn and keep going
-     * without any other JPA invokations;
-     * 2b) else apply JPA crud action and finally:
-     * - check for hyperspace mod, if yes apply screate(...) - ( may be asynch) see ref.
-     * - apply createForCacheListeners(...) -(may be asynch) see ref.
-     * 
+     * ---------------------------------------------------------------- General
+     * behavior for persistency are the following: 1) the proper thread-related
+     * entity manager is fetched 2) JPA crud transaction executed 2a) if NOT ok,
+     * then rollback transaction, warn and keep going without any other JPA
+     * invokations; 2b) else apply JPA crud action and finally: - check for
+     * hyperspace mod, if yes apply screate(...) - ( may be asynch) see ref. -
+     * apply createForCacheListeners(...) -(may be asynch) see ref.
+     *
      * @param <T>
      * @param item
      */
@@ -450,6 +526,7 @@ public class SpaceV2 {
     // ========================================================================
     // PUBLIC API Retrieval (BASE)
     // =====================
+    // ..
     /**
      *
      * @param <T>
@@ -462,6 +539,95 @@ public class SpaceV2 {
                 "SELECT c FROM " + clazz.getSimpleName() + " c",
                 clazz);
         return query.getResultList();
+    }
+
+    /**
+     *
+     * Note: this is also backward compatible with SpaceX or, if missing, with
+     * the same set as getSharable(clazz, String)
+     *
+     * @param <T>
+     * @param clazz
+     * @param someStringUidJPAViaAnnotationsDescribed
+     * @return
+     */
+    public <T> T get(Class<T> clazz, String someStringUidJPAViaAnnotationsDescribed) {
+        EntityManager em = em(Thread.currentThread());
+        T fullObject = em.find(clazz, someStringUidJPAViaAnnotationsDescribed);
+        return fullObject;
+    }
+
+    /**
+     *
+     * Warning: the returned object may be HOLLOW, i.e. not fully initialized.
+     * Note: use this if you need an entity only to build a reference to it
+     * in some other entities. 
+     * @param <T>
+     * @param clazz
+     * @param someStringUidJPAViaAnnotationsDescribed
+     * @return
+     */
+    public <T> T point(Class<T> clazz, String someStringUidJPAViaAnnotationsDescribed) {
+        EntityManager em = em(Thread.currentThread());
+        T mayBeHollow = em.getReference(clazz, someStringUidJPAViaAnnotationsDescribed);
+        return mayBeHollow;
+    }
+
+    /**
+     *
+     * @param <T>
+     * @param clazz
+     * @param someLongIdJPAViaAnnotationsDescribed
+     * @return
+     */
+    public <T> T get(Class<T> clazz, long someLongIdJPAViaAnnotationsDescribed) {
+        EntityManager em = em(Thread.currentThread());
+        T fullObject = em.find(clazz, someLongIdJPAViaAnnotationsDescribed);
+        return fullObject;
+    }
+
+    /**
+     * Warning: the returned object may be HOLLOW, i.e. not fully initialized.
+     * Note: use this if you need an entity only to build a reference to it
+     * in some other entities. 
+     * @param <T>
+     * @param clazz
+     * @param someLongIdJPAViaAnnotationsDescribed
+     * @return
+     */
+    public <T> T point(Class<T> clazz, long someLongIdJPAViaAnnotationsDescribed) {
+        EntityManager em = em(Thread.currentThread());
+        T mayBeHollow = em.getReference(clazz, someLongIdJPAViaAnnotationsDescribed);
+        return mayBeHollow;
+    }
+
+    /**
+     * Note: this is also backward compatible with both SpaceX and HibProject
+     *
+     * @param <T>
+     * @param clazz
+     * @param someIntIdJPAViaAnnotationsDescribed
+     * @return
+     */
+    public <T> T get(Class<T> clazz, int someIntIdJPAViaAnnotationsDescribed) {
+        EntityManager em = em(Thread.currentThread());
+        T fullObject = em.find(clazz, someIntIdJPAViaAnnotationsDescribed);
+        return fullObject;
+    }
+
+    /**
+     * Warning: the returned object may be HOLLOW, i.e. not fully initialized.
+     * Note: use this if you need an entity only to build a reference to it
+     * in some other entities. 
+     * @param <T>
+     * @param clazz
+     * @param someIntIdJPAViaAnnotationsDescribed
+     * @return
+     */
+    public <T> T point(Class<T> clazz, int someIntIdJPAViaAnnotationsDescribed) {
+        EntityManager em = em(Thread.currentThread());
+        T mayBeHollow = em.getReference(clazz, someIntIdJPAViaAnnotationsDescribed);
+        return mayBeHollow;
     }
 
     /**
@@ -545,7 +711,71 @@ public class SpaceV2 {
     }
 
     // ========================================================================
-    // PUBLIC API Retrieval (SCRIPTED)
+    // PUBLIC API Retrieval (SCRIPTED and backward compatible with SpaceX and HibernationProject)
     // =====================
-    // as old one... TODO
+     
+    public <T> List<T> findAll_MULTILIKE_restricted(Class<T> clazz, String[] names, String[] values, int comp) {
+        return findAll_MULTILIKE_restricted(false, null, clazz, names, values, comp);
+    }
+
+    public <T> List<T> findAll_MATCH(Class<T> clazz, String name, String value, int comp) {
+        return findAll_MATCH(false, null, clazz, name, value, comp);
+    }
+
+    public <T> List<T> findAll_MATCH_INTEGERANDSTRING(Class<T> clazz, String name, String value, String intName, int intValue) {
+        return findAll_MATCH_INTEGERANDSTRING(false, null, clazz, name, value, intName, intValue);
+    }
+
+    public <T> List<T> findAll_LIKE(Class<T> clazz, String name, String likeValue, int comp) {
+        return findAll_LIKE(false, null, clazz, name, likeValue, comp);
+    }
+
+    public <T> List<T> findAll_TIME_MATCH(Class<T> clazz, String name, String value, int comp, String timeName, long from, long to) {
+        return findAll_TIME_MATCH(false, null, clazz, name, value, comp, timeName, from, to);
+    }
+
+    public <T> List<T> findAll_MULTILIKE_restricted(boolean sortOrder, String sortField, Class<T> clazz, String[] names, String[] values, int comp) {
+        if(sortField != null) {
+            
+        }
+        return null;
+    }
+
+    public <T> List<T> findAll_MATCH(boolean sortOrder, String sortField, Class<T> clazz, String name, String value, int comp) {
+        if(sortField != null) {
+            
+        }
+        return null;
+    }
+
+    public <T> List<T> findAll_MATCH_INTEGERANDSTRING(boolean sortOrder, String sortField, Class<T> clazz, String name, String value, String intName, int intValue) {
+        if(sortField != null) {
+            
+        }
+        return null;
+    }
+
+    public <T> List<T> findAll_LIKE(boolean sortOrder, String sortField, Class<T> clazz, String name, String likeValue, int comp) {
+        if(sortField != null) {
+            if(comp == 0) {
+                
+            } else {
+                
+            }
+        } else {
+            if(comp == 0) {
+                
+            } else {
+                
+            }
+        }
+        return null;
+    }
+
+    public <T> List<T> findAll_TIME_MATCH(boolean sortOrder, String sortField, Class<T> clazz, String name, String value, int comp, String timeName, long from, long to) {
+        if(sortField != null) {
+            
+        }
+        return null;
+    }
 }
