@@ -536,7 +536,7 @@ public class SpaceV2 {
      */
     public <T> List<T> getAll(Class<T> clazz, String orderByClause) {
         TypedQuery<T> query = em(Thread.currentThread()).createQuery(
-                "SELECT c FROM " + clazz.getSimpleName() + " c",
+                "SELECT c FROM Object c WHERE c instanceof " + clazz.getSimpleName(),
                 clazz);
         return query.getResultList();
     }
@@ -643,6 +643,9 @@ public class SpaceV2 {
      * @return
      */
     public <T> List<T> findWhere(Class<T> clazz, String jpaclause, HashMap<String, String> params, String orderByClause) {
+        if(orderByClause == null) {
+            orderByClause = "";
+        }
         TypedQuery<T> query = em(Thread.currentThread()).createQuery(
                 "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + orderByClause,
                 clazz);
