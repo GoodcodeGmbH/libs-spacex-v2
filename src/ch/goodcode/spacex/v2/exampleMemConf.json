@@ -1,0 +1,25 @@
+{
+    "mainUnit": 
+            {
+                "isFile": true,
+                "memPath": "C:/temp/mem.odb"
+            },
+    "otherUnits": 
+            [
+                {
+                    "isFile": "true",
+                    "isTokenized": false,
+                    "dataTypes": ["Ebook", "Author"],
+                    "memPath": "C:/temp/base.odb"
+                },
+                {
+                    "isFile": "true",
+                    "isTokenized": true,
+                    "dataType": "MyPoint",   
+                    "dataSize": 25000000,
+                    "tokensField": "x",
+                    "tokensTypeRule":"int",
+                    "memSubfolder": "C:/temp/"
+                }
+            ]
+}
