@@ -20,6 +20,7 @@ import java.util.Map;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
 import javax.persistence.Persistence;
+import javax.persistence.Query;
 import javax.persistence.TypedQuery;
 
 /**
@@ -134,13 +135,16 @@ public class SpaceV2 {
      * @throws Exception
      */
     public void start() throws Exception {
-        LOG.o("Starting SV2 instance '"+myId+"'...");
+        LOG.o("Starting SV2 instance '" + myId + "'...");
 
-        // put in place MEM TIER
+        // put in place MEM TIER ---------------------------------------------------
         if (optUser == null) {
 
             mainEMF = Persistence.createEntityManagerFactory(
                     optHostFull);
+
+            LOG.o("Mod0 (debug) detected: main ef only with path " + optHostFull);
+
         } else if (odbConf == null) {
 
             Map<String, String> properties = new HashMap<>();
@@ -149,7 +153,12 @@ public class SpaceV2 {
             mainEMF = Persistence.createEntityManagerFactory(
                     optHostFull,
                     properties);
+
+            LOG.o("Mod1 ('configless', debug) detected: main ef only with path " + optHostFull + " and user access");
+
         } else {
+
+            LOG.o("odb Config file detected and properly parsed.");
 
             EJSONObject mainUnitJson = odbConf.getObject("mainUnit");
             if (mainUnitJson.getBoolean("isFile")) {
@@ -162,6 +171,13 @@ public class SpaceV2 {
                 mainEMF = Persistence.createEntityManagerFactory(
                         "objectdb://" + mainUnitJson.getString("odbHost") + ":" + mainUnitJson.getInteger("odbPort") + "/" + mainUnitJson.getString("memUid") + ".odb",
                         properties);
+
+                EJSONObject backup = mainUnitJson.getObject("backup");
+                if (backup != null) {
+                    Query backupQuery = mainEMF.createEntityManager().createQuery("objectdb backup");
+                    backupQuery.setParameter("target", new java.io.File(backup.getString("target")));
+                    backupQuery.getSingleResult();
+                }
             }
 
             EJSONArray otherUnitsJsonArray = odbConf.getArray("otherUnits");
@@ -178,13 +194,27 @@ public class SpaceV2 {
                             EntityManagerFactory anEmf = Persistence.createEntityManagerFactory(
                                     unitJson.getString("memSubfolder") + "/" + dt.toLowerCase() + "_" + j + ".odb");
                             emfsMAP.put(dt + "_" + j, anEmf);
+                            EJSONObject backup = unitJson.getObject("backup");
+                            if (backup != null) {
+                                Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
+                                backupQuery.setParameter("target", new java.io.File(backup.getString("target")));
+                                backupQuery.getSingleResult();
+                            }
                         }
+
                     } else {
                         EntityManagerFactory anEmf = Persistence.createEntityManagerFactory(
                                 unitJson.getString("memPath"));
                         EJSONArray types = unitJson.getArray("dataTypes");
                         for (int j = 0; j < types.size(); j++) {
                             emfsMAP.put(types.getString(j), anEmf);
+                        }
+
+                        EJSONObject backup = unitJson.getObject("backup");
+                        if (backup != null) {
+                            Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
+                            backupQuery.setParameter("target", new java.io.File(backup.getString("target")));
+                            backupQuery.getSingleResult();
                         }
 
                     }
@@ -203,14 +233,15 @@ public class SpaceV2 {
                 }
             }
 
+            LOG.o("ModX detected: main emf only with path " + optHostFull + ", emfs built: " + emfsMAP.size());
+
         }
 
-        // put in place COM/P2P TIER
+        // put in place COM/P2P TIER --------------------------------------------------------
         if (IS_REAL_SPACE) {
-            //LOG.o("SV2 Space tier detected, starting it...");
+            LOG.o("SV2 Space enabled, deploying and starting it...");
             server = new MiniServer(this, spaceConf.getInteger("listeningPort"));
             server.startInThread();
-
             for (SpacePeer peer : peers) {
                 MiniClient c = new MiniClient(peer.getHost(), peer.getPort());
                 c.start();
@@ -313,6 +344,11 @@ public class SpaceV2 {
      * @throws Exception
      */
     public void stop() throws Exception {
+        LOG.o("Now stopping SV2 '" + myId + "'...");
+        if (IS_REAL_SPACE) {
+
+        }
+
         for (Map.Entry<Long, EntityManager> entry : ems.entrySet()) {
             EntityManager em = entry.getValue();
             em.close();
@@ -323,7 +359,7 @@ public class SpaceV2 {
         }
         emfsMAP.clear();
         mainEMF.close();
-        LOG.o("Stopped SV2 '"+myId+"', goodbye.");
+        LOG.o("Stopped SV2 '" + myId + "', goodbye.");
         LOG.s();
     }
 
@@ -372,70 +408,10 @@ public class SpaceV2 {
     // overcome defining multiple simple non tokenized otherUnit(s) and adapting the a ModelController
     // to handle multiple classes as if it was one!
     // (they very well may use the public api of course for meta types entities)
-    private <T> void tcreate(T item) {
-
-    }
-
-    private <T> void tupdate(T item) {
-
-    }
-
-    private <T> void tdelete(T item) {
-
-    }
-
-    private <T> void tcreate(int size, List<T> items) {
-
-    }
-
-    private <T> void tupdate(int size, List<T> items) {
-
-    }
-
-    private <T> void tdelete(int size, List<T> items) {
-
-    }
-
     // ========================================================================
     // Space utility methods
     // There should be here some kinf of Locking TODO
     // (they very well may use the public api of course for meta types entities)
-    private <T> void screate(T item) {
-
-    }
-
-    private <T> void supdate(T item) {
-
-    }
-
-    private <T> void sdelete(T item) {
-
-    }
-
-    private <T> void screate(int size, List<T> items) {
-        if (size < MAGIC_ASYNCH_BOUNDARY) {
-
-        } else {
-
-        }
-    }
-
-    private <T> void supdate(int size, List<T> items) {
-        if (size < MAGIC_ASYNCH_BOUNDARY) {
-
-        } else {
-
-        }
-    }
-
-    private <T> void sdelete(int size, List<T> items) {
-        if (size < MAGIC_ASYNCH_BOUNDARY) {
-
-        } else {
-
-        }
-    }
-
     // ========================================================================
     // PUBLIC API CRUD
     // =====================
@@ -454,23 +430,23 @@ public class SpaceV2 {
      */
     public <T> void create(T item) {
         EntityManager em = em(Thread.currentThread(), item.getClass());
-        if (em != null) {
-            try {
+        try {
+            if (em != null) {
                 em.getTransaction().begin();
                 em.persist(item);
                 em.getTransaction().commit();
-            } finally {
-                if (em.getTransaction().isActive()) {
-                    em.getTransaction().rollback();
-                } else {
-                    if (IS_REAL_SPACE) {
-                        screate(item);
-                    }
-                    createForCacheListeners(item);
-                }
+            } else {
+                // -
             }
-        } else {
-            tcreate(item);
+        } finally {
+            if (em.getTransaction().isActive()) {
+                em.getTransaction().rollback();
+            } else {
+                if (IS_REAL_SPACE) {
+                    // -
+                }
+                createForCacheListeners(item);
+            }
         }
     }
 
@@ -481,23 +457,23 @@ public class SpaceV2 {
      */
     public <T> void update(T item) {
         EntityManager em = em(Thread.currentThread(), item.getClass());
-        if (em != null) {
-            try {
+        try {
+            if (em != null) {
                 em.getTransaction().begin();
                 em.merge(item);
                 em.getTransaction().commit();
-            } finally {
-                if (em.getTransaction().isActive()) {
-                    em.getTransaction().rollback();
-                } else {
-                    if (IS_REAL_SPACE) {
-                        supdate(item);
-                    }
-                    updateForCacheListeners(item);
-                }
+            } else {
+                // -
             }
-        } else {
-            tupdate(item);
+        } finally {
+            if (em.getTransaction().isActive()) {
+                em.getTransaction().rollback();
+            } else {
+                if (IS_REAL_SPACE) {
+                    // -
+                }
+                updateForCacheListeners(item);
+            }
         }
     }
 
@@ -508,23 +484,23 @@ public class SpaceV2 {
      */
     public <T> void delete(T item) {
         EntityManager em = em(Thread.currentThread(), item.getClass());
-        if (em != null) {
-            try {
+        try {
+            if (em != null) {
                 em.getTransaction().begin();
                 em.remove(item);
                 em.getTransaction().commit();
-            } finally {
-                if (em.getTransaction().isActive()) {
-                    em.getTransaction().rollback();
-                } else {
-                    if (IS_REAL_SPACE) {
-                        sdelete(item);
-                    }
-                    deleteForCacheListeners(item);
-                }
+            } else {
+                // -
             }
-        } else {
-            tdelete(item);
+        } finally {
+            if (em.getTransaction().isActive()) {
+                em.getTransaction().rollback();
+            } else {
+                if (IS_REAL_SPACE) {
+                    // -
+                }
+                deleteForCacheListeners(item);
+            }
         }
     }
 
@@ -541,8 +517,8 @@ public class SpaceV2 {
             }
         } else {
             EntityManager em = em(Thread.currentThread(), items.get(0).getClass());
-            if (em != null) {
-                try {
+            try {
+                if (em != null) {
                     em.getTransaction().begin();
                     int i = 0;
                     for (T it : items) {
@@ -555,19 +531,20 @@ public class SpaceV2 {
                         i++;
                     }
                     em.getTransaction().commit();
-                } finally {
-                    if (em.getTransaction().isActive()) {
-                        em.getTransaction().rollback();
-                    } else {
-                        if (IS_REAL_SPACE) {
-                            screate(size, items);
-                        }
-                        createForCacheListeners(items);
-                    }
+                } else {
+                    // -
                 }
-            } else {
-                tcreate(size, items);
+            } finally {
+                if (em.getTransaction().isActive()) {
+                    em.getTransaction().rollback();
+                } else {
+                    if (IS_REAL_SPACE) {
+                        //-
+                    }
+                    createForCacheListeners(items);
+                }
             }
+
         }
     }
 
@@ -584,8 +561,9 @@ public class SpaceV2 {
             }
         } else {
             EntityManager em = em(Thread.currentThread(), items.get(0).getClass());
-            if (em != null) {
-                try {
+
+            try {
+                if (em != null) {
                     em.getTransaction().begin();
                     int i = 0;
                     for (T it : items) {
@@ -598,19 +576,20 @@ public class SpaceV2 {
                         i++;
                     }
                     em.getTransaction().commit();
-                } finally {
-                    if (em.getTransaction().isActive()) {
-                        em.getTransaction().rollback();
-                    } else {
-                        if (IS_REAL_SPACE) {
-                            supdate(size, items);
-                        }
-                        updateForCacheListeners(items);
-                    }
+                } else {
+                    // -
                 }
-            } else {
-                tupdate(size, items);
+            } finally {
+                if (em.getTransaction().isActive()) {
+                    em.getTransaction().rollback();
+                } else {
+                    if (IS_REAL_SPACE) {
+                        // -
+                    }
+                    updateForCacheListeners(items);
+                }
             }
+
         }
     }
 
@@ -627,8 +606,8 @@ public class SpaceV2 {
             }
         } else {
             EntityManager em = em(Thread.currentThread(), items.get(0).getClass());
-            if (em != null) {
-                try {
+            try {
+                if (em != null) {
                     em.getTransaction().begin();
                     int i = 0;
                     for (T it : items) {
@@ -641,19 +620,20 @@ public class SpaceV2 {
                         i++;
                     }
                     em.getTransaction().commit();
-                } finally {
-                    if (em.getTransaction().isActive()) {
-                        em.getTransaction().rollback();
-                    } else {
-                        if (IS_REAL_SPACE) {
-                            sdelete(size, items);
-                        }
-                        deleteForCacheListeners(items);
-                    }
+                } else {
+                    // -
                 }
-            } else {
-                tdelete(size, items);
+            } finally {
+                if (em.getTransaction().isActive()) {
+                    em.getTransaction().rollback();
+                } else {
+                    if (IS_REAL_SPACE) {
+                        // -
+                    }
+                    deleteForCacheListeners(items);
+                }
             }
+
         }
     }
 

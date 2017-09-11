@@ -10,7 +10,11 @@
                     "isFile": "true",
                     "isTokenized": false,
                     "dataTypes": ["Ebook", "Author"],
-                    "memPath": "C:/temp/base.odb"
+                    "memPath": "C:/temp/base.odb",
+                    "backup": 
+                    {
+                        "target":"C:/temp/backup"
+                    }
                 },
                 {
                     "isFile": "true",
