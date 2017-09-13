@@ -6,6 +6,7 @@
 package ch.goodcode.spacex.v2;
 
 import ch.goodcode.libs.io.EnhancedFilesystemIO;
+import ch.goodcode.libs.threading.ThreadManager;
 import ch.goodcode.libs.utils.GOOUtils;
 import ch.goodcode.libs.utils.dataspecs.EJSONArray;
 import ch.goodcode.libs.utils.dataspecs.EJSONObject;
@@ -27,7 +28,7 @@ import javax.persistence.TypedQuery;
  *
  * @author Paolo Domenighetti
  */
-public class SpaceV2 {
+public final class SpaceV2 {
 
     // ======================================================================================================================================
     private static final int EMF_SIZE_LIMIT = 1_000_000;
@@ -53,6 +54,7 @@ public class SpaceV2 {
     private final EJSONObject odbConf;
     private final String optHostFull;
     private String optUser, optPass;
+    private ThreadManager tmanager = new ThreadManager(15, 100);
     // -
     private final EJSONObject spaceConf;
     private MiniServer server;
@@ -174,9 +176,15 @@ public class SpaceV2 {
 
                 EJSONObject backup = mainUnitJson.getObject("backup");
                 if (backup != null) {
-                    Query backupQuery = mainEMF.createEntityManager().createQuery("objectdb backup");
-                    backupQuery.setParameter("target", new java.io.File(backup.getString("target")));
-                    backupQuery.getSingleResult();
+                    String target = backup.getString("target");
+                    tmanager.fetchDaemon(new Runnable() {
+                        @Override
+                        public void run() {
+                            Query backupQuery = mainEMF.createEntityManager().createQuery("objectdb backup");
+                            backupQuery.setParameter("target", new java.io.File(target));
+                            backupQuery.getSingleResult();
+                        }
+                    }, 5000L, backup.getInteger("schedule") * GOOUtils.TIME_HOURS);
                 }
             }
 
@@ -196,9 +204,16 @@ public class SpaceV2 {
                             emfsMAP.put(dt + "_" + j, anEmf);
                             EJSONObject backup = unitJson.getObject("backup");
                             if (backup != null) {
-                                Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
-                                backupQuery.setParameter("target", new java.io.File(backup.getString("target")));
-                                backupQuery.getSingleResult();
+                                String target = backup.getString("target");
+                                tmanager.fetchDaemon(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
+                                        backupQuery.setParameter("target", new java.io.File(target));
+                                        backupQuery.getSingleResult();
+                                    }
+                                }, 5000L, backup.getInteger("schedule") * GOOUtils.TIME_HOURS);
+
                             }
                         }
 
@@ -212,9 +227,16 @@ public class SpaceV2 {
 
                         EJSONObject backup = unitJson.getObject("backup");
                         if (backup != null) {
-                            Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
-                            backupQuery.setParameter("target", new java.io.File(backup.getString("target")));
-                            backupQuery.getSingleResult();
+                            String target = backup.getString("target");
+                            tmanager.fetchDaemon(new Runnable() {
+                                @Override
+                                public void run() {
+                                    Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
+                                    backupQuery.setParameter("target", new java.io.File(target));
+                                    backupQuery.getSingleResult();
+                                }
+                            }, 5000L, backup.getInteger("schedule") * GOOUtils.TIME_HOURS);
+
                         }
 
                     }
