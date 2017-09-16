@@ -959,9 +959,9 @@ public final class SpaceV2 {
             if (sortOrder) {
                 so = "desc";
             }
-            return findWhere(clazz, "c." + timeName + " >= " + from + " AND c." + timeName + " < " + to + " AND c." + name + " = '" + value + "'", null, "order by c." + sortField + " " + so);
+            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to + "L AND c." + name + " = '" + value + "'", null, "order by c." + sortField + " " + so);
         } else {
-            return findWhere(clazz, "c." + timeName + " >= " + from + " AND c." + timeName + " < " + to + " AND c." + name + " = '" + value + "'", null);
+            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to + "L AND c." + name + " = '" + value + "'", null);
         }
     }
 }
