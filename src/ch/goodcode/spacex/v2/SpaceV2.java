@@ -5,6 +5,7 @@
  */
 package ch.goodcode.spacex.v2;
 
+import ch.goodcode.libs.logging.LogBuffer;
 import ch.goodcode.libs.io.EnhancedFilesystemIO;
 import ch.goodcode.libs.threading.ThreadManager;
 import ch.goodcode.libs.utils.GOOUtils;
