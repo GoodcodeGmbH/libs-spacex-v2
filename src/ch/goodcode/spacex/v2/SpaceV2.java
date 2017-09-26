@@ -13,14 +13,18 @@ import ch.goodcode.libs.utils.dataspecs.EJSONArray;
 import ch.goodcode.libs.utils.dataspecs.EJSONObject;
 import ch.goodcode.spacex.v2.engine.MiniClient;
 import ch.goodcode.spacex.v2.engine.MiniServer;
+import ch.goodcode.spacex.v2.engine.RegVar;
 import ch.goodcode.spacex.v2.engine.TokensPolicy;
 import java.io.File;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import javax.persistence.Entity;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
+import javax.persistence.Id;
 import javax.persistence.Persistence;
 import javax.persistence.Query;
 import javax.persistence.TypedQuery;
@@ -663,6 +667,43 @@ public final class SpaceV2 {
     // ========================================================================
     // PUBLIC API Retrieval (BASE)
     // =====================
+    
+    /**
+     * 
+     * @param key
+     * @return 
+     */
+    public String readRegVar(String key) {
+        if (key != null) {
+            RegVar v = get(RegVar.class, key);
+            if (v != null) {
+                return v.getValue();
+            } else {
+                return null;
+            }
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * 
+     * @param key
+     * @param value 
+     */
+    public void writeregVar(String key, String value) {
+        if (key != null) {
+            RegVar get = get(RegVar.class, key);
+            if (get != null) {
+                delete(get);
+            }
+            RegVar v = new RegVar();
+            v.setKey(key);
+            v.setValue(value);
+            create(v);
+        }
+    }
+
     // ..
     /**
      *
@@ -965,4 +1006,5 @@ public final class SpaceV2 {
             return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to + "L AND c." + name + " = '" + value + "'", null);
         }
     }
+
 }
