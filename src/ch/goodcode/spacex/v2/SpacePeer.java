@@ -11,6 +11,7 @@ package ch.goodcode.spacex.v2;
  */
 public class SpacePeer {
     
+    private String uid;
     private String host;
     private int port;
 
@@ -20,6 +21,22 @@ public class SpacePeer {
 
     public int getPort() {
         return port;
+    }
+
+    public String getUid() {
+        return uid;
+    }
+
+    public void setUid(String uid) {
+        this.uid = uid;
+    }
+
+    public void setHost(String host) {
+        this.host = host;
+    }
+
+    public void setPort(int port) {
+        this.port = port;
     }
     
     

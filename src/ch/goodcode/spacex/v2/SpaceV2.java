@@ -7,19 +7,28 @@ package ch.goodcode.spacex.v2;
 
 import ch.goodcode.libs.logging.LogBuffer;
 import ch.goodcode.libs.io.EnhancedFilesystemIO;
+import ch.goodcode.libs.security.CryptoEngine;
+import ch.goodcode.libs.security.EnhancedCryptography;
+import ch.goodcode.libs.security.PermissionEngine;
 import ch.goodcode.libs.threading.ThreadManager;
 import ch.goodcode.libs.utils.GOOUtils;
 import ch.goodcode.libs.utils.dataspecs.EJSONArray;
 import ch.goodcode.libs.utils.dataspecs.EJSONObject;
+import ch.goodcode.spacex.v2.engine.EncryptedMessageObject;
 import ch.goodcode.spacex.v2.engine.MiniClient;
 import ch.goodcode.spacex.v2.engine.MiniServer;
 import ch.goodcode.spacex.v2.engine.RegVar;
 import ch.goodcode.spacex.v2.engine.TokensPolicy;
 import java.io.File;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import javax.crypto.SecretKey;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
 import javax.persistence.Persistence;
@@ -41,6 +50,7 @@ public final class SpaceV2 {
     private static final int MAGIC_ASYNCH_BOUNDARY = 10_000;
     private final boolean IS_REAL_SPACE;
     private final String myId;
+    private final String myPassword;
 
     public String geSpaceId() {
         return myId;
@@ -62,16 +72,21 @@ public final class SpaceV2 {
     private MiniServer server;
     private SpacePeer[] peers;
     private final HashMap<String, MiniClient> clients = new HashMap<>();
+    private long mcounter = 0L;
+    // -
+    private final CryptoEngine spaceCryptos = new CryptoEngine();
+    private final PermissionEngine spacePermissions = new PermissionEngine();
 
     /**
      *
      * @param uid
+     * @param spacePassword may be null if there is no REAL SPACE
      * @param logPath
      * @param logLevel
      * @param odbConfFilePath
      * @param spaceConfFilePath
      */
-    public SpaceV2(String uid, String logPath, int logLevel, String odbConfFilePath, String spaceConfFilePath) {
+    public SpaceV2(String uid, String spacePassword, String logPath, int logLevel, String odbConfFilePath, String spaceConfFilePath) {
         LOG = new LogBuffer("spacev2-" + uid, logPath, 1000, logLevel);
         IS_REAL_SPACE = spaceConfFilePath != null;
         odbConf = new EJSONObject(EnhancedFilesystemIO.fileRead(new File(odbConfFilePath)).toString());
@@ -82,6 +97,7 @@ public final class SpaceV2 {
         }
         optHostFull = null;
         this.myId = uid;
+        this.myPassword = spacePassword;
     }
 
     /**
@@ -103,6 +119,7 @@ public final class SpaceV2 {
         optUser = user;
         optPass = pass;
         this.myId = uid;
+        this.myPassword = "1234";
     }
 
     /**
@@ -120,6 +137,7 @@ public final class SpaceV2 {
         spaceConf = null;
         optHostFull = odbFilePath;
         this.myId = uid;
+        this.myPassword = "1234";
     }
 
     /**
@@ -263,15 +281,24 @@ public final class SpaceV2 {
 
         // put in place COM/P2P TIER --------------------------------------------------------
         if (IS_REAL_SPACE) {
-            LOG.o("SV2 Space enabled, deploying and starting it...");
-            server = new MiniServer(this, spaceConf.getInteger("listeningPort"));
+            LOG.o("SV2 Space enabled, deploying and starting it on port " + spaceConf.getInteger("listeningPort") + "...");
+            // prepare the main listening server for announces and objects:
+            server = new MiniServer(this, spaceConf.getInteger("listeningPort"), LOG);
             server.startInThread();
             for (SpacePeer peer : peers) {
-                MiniClient c = new MiniClient(peer.getHost(), peer.getPort());
+                // for every registered peer prepare the com client to send messages (when they will be online):
+                MiniClient c = new MiniClient(this, peer.getHost(), peer.getPort(), peer.getUid(), LOG);
                 c.start();
             }
 
+            // TODO init permissions and cryptos
+            // save the default key:
+            spaceCryptos.createAndStoreKey("DEFAULT", "DgVC7DaGMq9+fwnt+bjaZg==");
+
+            LOG.o("SV2 Space is ready.");
         }
+
+        LOG.o("SV2 instance '" + myId + " has properly started. Good work.");
     }
 
     private final HashMap<String, ILevel3Updatable<?>> LEVEL3CACHELISTENERS = new HashMap<>();
@@ -331,12 +358,83 @@ public final class SpaceV2 {
         }
     }
 
+    private String mid(String forgeMethodName, long time) {
+        mcounter++;
+        return GOOUtils.toHashcode_SHA256(forgeMethodName + time + mcounter);
+    }
+
+    public EncryptedMessageObject issueMessage_ANNOUNCE_request(String otherPeerId) {
+        long t = System.currentTimeMillis();
+        EncryptedMessageObject o = new EncryptedMessageObject(
+                mid("issueMessage_ANNOUNCE", t),
+                EncryptedMessageObject.KIND_ACCESS,
+                encrypt(null, otherPeerId), // the announce is default encrypted
+                myId,
+                t
+        );
+        return o;
+    }
+
+    public EncryptedMessageObject issueMessage_ANNOUNCE_answer(String newGenKey) {
+        long t = System.currentTimeMillis();
+        EncryptedMessageObject o = new EncryptedMessageObject(
+                mid("issueMessage_ANNOUNCE_answer", t),
+                EncryptedMessageObject.KIND_ACCESS,
+                encrypt(null, "KEYED:" + newGenKey), // the announce is default encrypted
+                myId,
+                t
+        );
+        return o;
+    }
+
+    public EncryptedMessageObject issueMessage_LOGIN_request(String otherPeerId) {
+        long t = System.currentTimeMillis();
+        EncryptedMessageObject o = new EncryptedMessageObject(
+                mid("issueMessage_LOGIN", t),
+                EncryptedMessageObject.KIND_ACCESS,
+                encrypt(otherPeerId, myId + ":" + myPassword),
+                myId,
+                t
+        );
+        return o;
+    }
+
+    public EncryptedMessageObject issueMessage_LOGIN_answer(String otherPeerId, boolean ans) {
+        long t = System.currentTimeMillis();
+        if (ans) {
+            EncryptedMessageObject o = new EncryptedMessageObject(
+                    mid("issueMessage_ANNOUNCE_answer", t),
+                    EncryptedMessageObject.KIND_ACCESS,
+                    encrypt(otherPeerId, "OK"),
+                    myId,
+                    t
+            );
+            return o;
+        } else {
+            EncryptedMessageObject o = new EncryptedMessageObject(
+                    mid("issueMessage_ANNOUNCE_answer", t),
+                    EncryptedMessageObject.KIND_ACCESS,
+                    encrypt(otherPeerId, "ERROR"),
+                    myId,
+                    t
+            );
+            return o;
+        }
+    }
+
     public void listen_parseAndWorkoutListenedObject(String peerId, EJSONObject payload) {
 
     }
 
-    public void listen_announce(String peerId, EJSONObject access) {
-
+    public boolean listen_login(String peerId, String loginStringPayload) {
+        String[] split = loginStringPayload.split(":");
+        String u = split[0];
+        String p = split[1];
+        if(u.equals(peerId)) {
+            return spacePermissions.login(u, p);
+        } else {
+            return false;
+        }
     }
 
     public void listen_meta(String peerId, EJSONObject meta) {
@@ -347,20 +445,60 @@ public final class SpaceV2 {
 
     }
 
-    private void sendObjectToPeer(String peerId, EJSONObject payload) {
+    public String issueAndRegisterSessionKeyForPeer(String peerId) {
+        // IN keys
+        SecretKey k;
+        try {
+            k = EnhancedCryptography.generateSecretKey();
+            String saveSecretKey = EnhancedCryptography.saveSecretKey(k);
+            spaceCryptos.createAndStoreKey(peerId + ":IN", saveSecretKey);
+            return saveSecretKey;
+        } catch (NoSuchAlgorithmException | NoSuchProviderException ex) {
+            return null; // always works, no problem
+        }
+        
+    }
+
+    public boolean saveAndRegisterSessionKeyForPeer(String peerId, String k) {
+        // OUT keys
+        for (int i = 0; i < peers.length; i++) {
+            SpacePeer peer = peers[i];
+            if(peer.getUid().equals(peerId)) {
+                spaceCryptos.createAndStoreKey(peerId + ":OUT", k);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void sendMessageToPeer(String peerId, EncryptedMessageObject m) {
 
     }
 
-    private void sendObjectsToPeer(String peerId, EJSONArray payload) {
+    public void sendObjectToPeer(String peerId, EJSONObject payload) {
 
     }
 
-    public String encrypt() {
-        return "";
+    public void sendObjectsToPeer(String peerId, EJSONArray payload) {
+
     }
 
-    public String decrypt() {
-        return "";
+    public String encrypt(String keyID, String s) {
+        if (keyID == null) {
+            keyID = "DEFAULT";
+        } else {
+            keyID = keyID + ":OUT"; // this is the session key received from the other peer
+        }
+        return spaceCryptos.decryptInline(keyID, s);
+    }
+
+    public String decrypt(String keyID, String s) {
+        if (keyID == null) {
+            keyID = "DEFAULT";
+        } else {
+            keyID = keyID + ":IN"; // this is my generated session key for the peer
+        }
+        return spaceCryptos.encryptInline(keyID, s);
     }
 
     /**
@@ -382,6 +520,8 @@ public final class SpaceV2 {
             entry.getValue().close();
         }
         emfsMAP.clear();
+
+        //-
         mainEMF.close();
         LOG.o("Stopped SV2 '" + myId + "', goodbye.");
         LOG.s();

@@ -5,6 +5,8 @@
  */
 package ch.goodcode.spacex.v2.engine;
 
+import ch.goodcode.libs.logging.LogBuffer;
+import ch.goodcode.spacex.v2.SpaceV2;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
@@ -15,50 +17,73 @@ import java.net.Socket;
  */
 public final class MiniClient {
 
+    private final SpaceV2 spaceForCallback;
     private final String remoteServerHost;
     private final int remoteServerPort;
     private Socket socketConnection;
     private ObjectOutputStream clientOutputStream;
     private boolean connected;
+    private final LogBuffer LOG;
+    private final String remotePeerId;
 
-    public MiniClient(String remoteServerHost, int remoteServerPort) {
+    public MiniClient(SpaceV2 spaceForCallback, String remoteServerHost, int remoteServerPort, String remotePeer, LogBuffer LOG) {
         this.remoteServerHost = remoteServerHost;
         this.remoteServerPort = remoteServerPort;
+        this.LOG = LOG;
+        this.spaceForCallback = spaceForCallback;
+        this.remotePeerId = remotePeer;
     }
 
     public void start() {
-        (new Thread(new Runnable() {
-            @Override
-            public void run() {
-                while (!connected) {
-                    try {
-                        socketConnection = new Socket(remoteServerHost, remoteServerPort);
-                        clientOutputStream = new ObjectOutputStream(socketConnection.getOutputStream());
-                        connected = true;
-                    } catch (Exception ex) {
-
-                    }
-                    try {
-                        Thread.sleep(10000L);
-                    } catch (InterruptedException ex) {
-                        
-                    }
-                }
-            }
-        })).start();
-
+       launchConnectorThread();
     }
 
     public void stop() {
         try {
             clientOutputStream.close();
             socketConnection.close();
-        } catch (Exception ex) {
-            
+        } catch (IOException ex) {
+            LOG.e("Error disposing with MiniClient.stop() for " + remoteServerHost + ":" + remoteServerPort, ex);
         }
     }
 
-    public void sendMessage(EncryptedMessageObject m) throws IOException {
-        clientOutputStream.writeObject(m);
+    public boolean sendMessage(EncryptedMessageObject m) {
+        if (connected) {
+            try {
+                clientOutputStream.writeObject(m);
+                return true;
+            } catch (IOException ex) {
+                LOG.e("I/O Issue in MiniClient.sendMessage() for " + remoteServerHost + ":" + remoteServerPort, ex);
+                connected = false;
+                launchConnectorThread();
+                return false;
+            }
+        } else {
+            LOG.e("I/O Issue in MiniClient.sendMessage() for " + remoteServerHost + ":" + remoteServerPort+"; the client is disconencted!");
+            launchConnectorThread();
+            return false;
+        }
+    }
+    
+    private void launchConnectorThread() {
+         (new Thread(() -> {
+            while (!connected) {
+                try {
+                    socketConnection = new Socket(remoteServerHost, remoteServerPort);
+                    clientOutputStream = new ObjectOutputStream(socketConnection.getOutputStream());
+                    connected = true;
+                    LOG.i("MiniClient connection worker has connected to "+remoteServerHost+":"+remoteServerPort+".");
+                    EncryptedMessageObject sueMessage_ANNOUNCE = spaceForCallback.issueMessage_ANNOUNCE_request(this.remotePeerId);
+                    sendMessage(sueMessage_ANNOUNCE);
+                } catch (Exception ex) {
+                    LOG.i("MiniClient connection worker: "+remoteServerHost+":"+remoteServerPort+" unreachable, retrying in 10 sec.");
+                }
+                try {
+                    Thread.sleep(10000L);
+                } catch (InterruptedException ex) {
+
+                }
+            }
+        })).start();
     }
 }

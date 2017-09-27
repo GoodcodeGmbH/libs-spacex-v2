@@ -24,12 +24,14 @@ public class EncryptedMessageObject implements Serializable {
     private final int kind;
     private final String payload;
     private final String fromPeer;
+    private final long issued;
 
-    public EncryptedMessageObject(String uid, int kind, String payload, String fromPeer) {
+    public EncryptedMessageObject(String uid, int kind, String payload, String fromPeer, long issued) {
         this.uid = uid;
         this.kind = kind;
         this.payload = payload;
         this.fromPeer = fromPeer;
+        this.issued = issued;
     }
 
     public String getUid() {
@@ -46,6 +48,10 @@ public class EncryptedMessageObject implements Serializable {
 
     public String getFromPeer() {
         return fromPeer;
+    }
+
+    public long getIssued() {
+        return issued;
     }
     
 }

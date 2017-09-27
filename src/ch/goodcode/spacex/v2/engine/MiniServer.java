@@ -5,6 +5,7 @@
  */
 package ch.goodcode.spacex.v2.engine;
 
+import ch.goodcode.libs.logging.LogBuffer;
 import ch.goodcode.spacex.v2.SpaceV2;
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -20,10 +21,12 @@ public final class MiniServer {
     private final int listeningPort;
     private ServerSocket socketConnection;
     private Thread theListener;
+    private final LogBuffer LOG;
 
-    public MiniServer(SpaceV2 spaceForCallback, int listeningPort) {
+    public MiniServer(SpaceV2 spaceForCallback, int listeningPort, LogBuffer LOG) {
         this.spaceForCallback = spaceForCallback;
         this.listeningPort = listeningPort;
+        this.LOG = LOG;
     }
 
     public ServerSocket getSocketConnection() {
@@ -36,10 +39,10 @@ public final class MiniServer {
             while (true) {
                 try {
                     Socket pipe = socketConnection.accept();
-                    ClientHandler clientHandler = new ClientHandler(spaceForCallback, pipe);
+                    PeerHandler clientHandler = new PeerHandler(spaceForCallback, pipe, LOG);
                     clientHandler.start();
                 } catch (IOException ex) {
-                    
+                    LOG.e("I/O Issue in MiniServer.startInThread() loop listening on "+listeningPort, ex);
                 }
             }
         });
@@ -47,8 +50,12 @@ public final class MiniServer {
 
     }
 
-    public void stop() throws IOException {
-        theListener.stop();
-        socketConnection.close();
+    public void stop() {
+        try {
+            theListener.stop();
+            socketConnection.close();
+        } catch (IOException ex) {
+            LOG.e("Error disposing with MiniServer.stop() listening on "+listeningPort, ex);
+        }
     }
 }
