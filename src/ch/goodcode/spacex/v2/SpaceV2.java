@@ -28,8 +28,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import javax.crypto.SecretKey;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
@@ -44,14 +42,15 @@ import javax.persistence.TypedQuery;
 public final class SpaceV2 {
 
     // ======================================================================================================================================
-    public static final String DEFAULT_CRYPTO_KEY ="DEFAULT";
+    private static final String DEFAULT_CRYPTO_KEY_ID = "DEFAULT";
     private static final String DEFAULT_ISO_KEY = "DgVC7DaGMq9+fwnt+bjaZg==";
     private static final int EMF_SIZE_LIMIT = 1_000_000;
-    private static final int PURGE_LIMIT = 50;
-    private static final long PURGE_TIMEOUT = 20 * GOOUtils.TIME_MINUTES;
+    private static final int EM_PURGE_LIMIT = 50;
+    private static final long EM_PURGE_TIMEOUT = 20 * GOOUtils.TIME_MINUTES;
     private static final int MAGIC_BATCH_BOUNDARY = 50;
     private static final int MAGIC_BATCH_DIVISOR = 20_000;
-    private static final int MAGIC_ASYNCH_BOUNDARY = 10_000;
+
+    //-
     private final boolean IS_REAL_SPACE;
     private final String myId;
     private final String myPassword;
@@ -60,6 +59,7 @@ public final class SpaceV2 {
         return myId;
     }
 
+    //-
     private LogBuffer LOG;
     private EntityManagerFactory mainEMF;
     private final HashMap<String, EntityManagerFactory> emfsMAP = new HashMap<>();
@@ -70,13 +70,15 @@ public final class SpaceV2 {
     private final EJSONObject odbConf;
     private final String optHostFull;
     private String optUser, optPass;
-    private ThreadManager tmanager = new ThreadManager(15, 100);
+    private final ThreadManager tmanager = new ThreadManager(15, 100);
+
     // -
     private final EJSONObject spaceConf;
     private MiniServer server;
     private SpacePeer[] peers;
     private final HashMap<String, MiniClient> clients = new HashMap<>();
     private long mcounter = 0L;
+
     // -
     private final CryptoEngine spaceCryptos = new CryptoEngine();
     private final PermissionEngine spacePermissions = new PermissionEngine();
@@ -294,52 +296,49 @@ public final class SpaceV2 {
                 MiniClient c = new MiniClient(this, peer.getHost(), peer.getPort(), peer.getUid(), LOG);
                 c.start();
             }
-            
-            
+
             // TODO init permissions and cryptos!!!!
             // save the default key:
-            spaceCryptos.createAndStoreKey(DEFAULT_CRYPTO_KEY, DEFAULT_ISO_KEY);
+            spaceCryptos.createAndStoreKey(DEFAULT_CRYPTO_KEY_ID, DEFAULT_ISO_KEY);
 
             //..
-            
             //..
-
             // space updater
             tmanager.fetchDaemon(() -> {
                 for (SpacePeer peer : peers) {
-                    if(peer.isConnected()) {
+                    if (peer.isConnected()) {
                         List<UpdateEntry> retrievePendingUpdatesForPeer = retrievePendingUpdatesForPeer(peer.getUid());
                         for (UpdateEntry updateEntry : retrievePendingUpdatesForPeer) {
-                            
-                            
-                            
+
                         }
                     }
                 }
             },
                     GOOUtils.TIME_SECONDS,
-                    20*GOOUtils.TIME_SECONDS);
-            
+                    20 * GOOUtils.TIME_SECONDS);
+
             // space deleter
             tmanager.fetchDaemon(() -> {
                 for (SpacePeer peer : peers) {
-                    if(peer.isConnected()) {
+                    if (peer.isConnected()) {
                         List<DeleteEntry> retrievePendingDeletesForPeer = retrievePendingDeletesForPeer(peer.getUid());
                         for (DeleteEntry deleteEntry : retrievePendingDeletesForPeer) {
-                            
-                            
-                            
+
                         }
                     }
                 }
             },
                     GOOUtils.TIME_SECONDS,
-                    20*GOOUtils.TIME_SECONDS);
+                    20 * GOOUtils.TIME_SECONDS);
 
             LOG.o("SV2 Space is ready.");
         }
 
-        LOG.o("SV2 instance '" + myId + " has properly started. Good work.");
+        if (IS_REAL_SPACE) {
+            LOG.o("SV2 full instance '" + myId + " with its Space (for " + peers.length + " registered peers) has properly started. Good work.");
+        } else {
+            LOG.o("SV2 instance '" + myId + " has properly started. Good work.");
+        }
     }
 
     private final HashMap<String, ILevel3Updatable<?>> LEVEL3CACHELISTENERS = new HashMap<>();
@@ -473,19 +472,19 @@ public final class SpaceV2 {
             return false;
         }
     }
-    
+
     public void markConnectedForOUT(String peerId) {
         for (SpacePeer peer : peers) {
-            if(peer.getUid().equals(peerId)) {
+            if (peer.getUid().equals(peerId)) {
                 peer.setConnected(true);
                 break;
             }
         }
     }
-    
+
     public void markDisconnectedForOUT(String peerId) {
         for (SpacePeer peer : peers) {
-            if(peer.getUid().equals(peerId)) {
+            if (peer.getUid().equals(peerId)) {
                 peer.setConnected(false);
                 break;
             }
@@ -544,8 +543,8 @@ public final class SpaceV2 {
 
     public String encrypt(String keyID, String s) {
         if (keyID == null) {
-            keyID = DEFAULT_CRYPTO_KEY;
-        } else if(!keyID.equals(DEFAULT_CRYPTO_KEY)) {
+            keyID = DEFAULT_CRYPTO_KEY_ID;
+        } else if (!keyID.equals(DEFAULT_CRYPTO_KEY_ID)) {
             keyID = keyID + ":OUT"; // this is the session key received from the other peer
         }
         return spaceCryptos.decryptInline(keyID, s);
@@ -553,8 +552,8 @@ public final class SpaceV2 {
 
     public String decrypt(String keyID, String s) {
         if (keyID == null) {
-            keyID = DEFAULT_CRYPTO_KEY;
-        } else if(!keyID.equals(DEFAULT_CRYPTO_KEY)) {
+            keyID = DEFAULT_CRYPTO_KEY_ID;
+        } else if (!keyID.equals(DEFAULT_CRYPTO_KEY_ID)) {
             keyID = keyID + ":IN"; // this is my generated session key for the peer
         }
         return spaceCryptos.encryptInline(keyID, s);
@@ -590,7 +589,7 @@ public final class SpaceV2 {
         if (tokensPolicies.containsKey(clazz.getSimpleName())) {
             return null; // <<-- in token processing...
         } else {
-            if (emsC > PURGE_LIMIT) {
+            if (emsC > EM_PURGE_LIMIT) {
                 emsC = 0L;
                 (new Thread(new Runnable() {
                     @Override
@@ -600,7 +599,7 @@ public final class SpaceV2 {
                         for (Map.Entry<Long, Long> entry : emsT.entrySet()) {
                             Long tid = entry.getKey();
                             Long lasrtSeen = entry.getValue();
-                            if (now - lasrtSeen > PURGE_TIMEOUT) {
+                            if (now - lasrtSeen > EM_PURGE_TIMEOUT) {
                                 tbDelTids.add(tid);
                             }
                         }
@@ -1285,16 +1284,15 @@ public final class SpaceV2 {
             return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to + "L AND c." + name + " = '" + value + "'", null);
         }
     }
-    
+
     // =================================================================================================
     // special retrievers and tool methods for hyperspace
-    
     private List<DeleteEntry> retrievePendingDeletesForPeer(String peerId) {
-        
+
     }
-    
+
     private List<UpdateEntry> retrievePendingUpdatesForPeer(String peerId) {
-        
+
     }
 
 }
