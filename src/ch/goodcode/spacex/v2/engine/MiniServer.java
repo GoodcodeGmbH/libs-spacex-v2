@@ -10,6 +10,7 @@ import ch.goodcode.spacex.v2.SpaceV2;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.HashMap;
 
 /**
  *
@@ -22,6 +23,7 @@ public final class MiniServer {
     private ServerSocket socketConnection;
     private Thread theListener;
     private final LogBuffer LOG;
+    private final HashMap<String,PeerHandler> handlers = new HashMap<>();
 
     public MiniServer(SpaceV2 spaceForCallback, int listeningPort, LogBuffer LOG) {
         this.spaceForCallback = spaceForCallback;
@@ -39,7 +41,10 @@ public final class MiniServer {
             while (true) {
                 try {
                     Socket pipe = socketConnection.accept();
-                    PeerHandler clientHandler = new PeerHandler(spaceForCallback, pipe, LOG);
+                    String strangeId = pipe.getRemoteSocketAddress().toString()+System.currentTimeMillis();
+                    PeerHandler clientHandler = new PeerHandler(spaceForCallback, this, strangeId, pipe, LOG);
+                    handlers.put(strangeId, clientHandler);
+                    LOG.i("MiniServer listened incoming socket ["+strangeId+"], starting its handler.");
                     clientHandler.start();
                 } catch (IOException ex) {
                     LOG.e("I/O Issue in MiniServer.startInThread() loop listening on "+listeningPort, ex);
@@ -49,11 +54,17 @@ public final class MiniServer {
         theListener.start();
 
     }
+    
+    public void markDeadPeerHandler(String strangeId) {
+        // the thread has will be terminated after this lines
+        handlers.remove(strangeId);
+    }
 
     public void stop() {
         try {
             theListener.stop();
             socketConnection.close();
+            LOG.o("MiniServer properly disposed.");
         } catch (IOException ex) {
             LOG.e("Error disposing with MiniServer.stop() listening on "+listeningPort, ex);
         }

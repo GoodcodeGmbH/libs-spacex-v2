@@ -14,11 +14,13 @@ import ch.goodcode.libs.threading.ThreadManager;
 import ch.goodcode.libs.utils.GOOUtils;
 import ch.goodcode.libs.utils.dataspecs.EJSONArray;
 import ch.goodcode.libs.utils.dataspecs.EJSONObject;
+import ch.goodcode.spacex.v2.engine.DeleteEntry;
 import ch.goodcode.spacex.v2.engine.EncryptedMessageObject;
 import ch.goodcode.spacex.v2.engine.MiniClient;
 import ch.goodcode.spacex.v2.engine.MiniServer;
 import ch.goodcode.spacex.v2.engine.RegVar;
 import ch.goodcode.spacex.v2.engine.TokensPolicy;
+import ch.goodcode.spacex.v2.engine.UpdateEntry;
 import java.io.File;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
@@ -42,6 +44,8 @@ import javax.persistence.TypedQuery;
 public final class SpaceV2 {
 
     // ======================================================================================================================================
+    public static final String DEFAULT_CRYPTO_KEY ="DEFAULT";
+    private static final String DEFAULT_ISO_KEY = "DgVC7DaGMq9+fwnt+bjaZg==";
     private static final int EMF_SIZE_LIMIT = 1_000_000;
     private static final int PURGE_LIMIT = 50;
     private static final long PURGE_TIMEOUT = 20 * GOOUtils.TIME_MINUTES;
@@ -290,10 +294,47 @@ public final class SpaceV2 {
                 MiniClient c = new MiniClient(this, peer.getHost(), peer.getPort(), peer.getUid(), LOG);
                 c.start();
             }
-
-            // TODO init permissions and cryptos
+            
+            
+            // TODO init permissions and cryptos!!!!
             // save the default key:
-            spaceCryptos.createAndStoreKey("DEFAULT", "DgVC7DaGMq9+fwnt+bjaZg==");
+            spaceCryptos.createAndStoreKey(DEFAULT_CRYPTO_KEY, DEFAULT_ISO_KEY);
+
+            //..
+            
+            //..
+
+            // space updater
+            tmanager.fetchDaemon(() -> {
+                for (SpacePeer peer : peers) {
+                    if(peer.isConnected()) {
+                        List<UpdateEntry> retrievePendingUpdatesForPeer = retrievePendingUpdatesForPeer(peer.getUid());
+                        for (UpdateEntry updateEntry : retrievePendingUpdatesForPeer) {
+                            
+                            
+                            
+                        }
+                    }
+                }
+            },
+                    GOOUtils.TIME_SECONDS,
+                    20*GOOUtils.TIME_SECONDS);
+            
+            // space deleter
+            tmanager.fetchDaemon(() -> {
+                for (SpacePeer peer : peers) {
+                    if(peer.isConnected()) {
+                        List<DeleteEntry> retrievePendingDeletesForPeer = retrievePendingDeletesForPeer(peer.getUid());
+                        for (DeleteEntry deleteEntry : retrievePendingDeletesForPeer) {
+                            
+                            
+                            
+                        }
+                    }
+                }
+            },
+                    GOOUtils.TIME_SECONDS,
+                    20*GOOUtils.TIME_SECONDS);
 
             LOG.o("SV2 Space is ready.");
         }
@@ -422,18 +463,32 @@ public final class SpaceV2 {
         }
     }
 
-    public void listen_parseAndWorkoutListenedObject(String peerId, EJSONObject payload) {
-
-    }
-
     public boolean listen_login(String peerId, String loginStringPayload) {
         String[] split = loginStringPayload.split(":");
         String u = split[0];
         String p = split[1];
-        if(u.equals(peerId)) {
+        if (u.equals(peerId)) {
             return spacePermissions.login(u, p);
         } else {
             return false;
+        }
+    }
+    
+    public void markConnectedForOUT(String peerId) {
+        for (SpacePeer peer : peers) {
+            if(peer.getUid().equals(peerId)) {
+                peer.setConnected(true);
+                break;
+            }
+        }
+    }
+    
+    public void markDisconnectedForOUT(String peerId) {
+        for (SpacePeer peer : peers) {
+            if(peer.getUid().equals(peerId)) {
+                peer.setConnected(false);
+                break;
+            }
         }
     }
 
@@ -443,6 +498,10 @@ public final class SpaceV2 {
 
     public void listen_error(String peerId, EJSONObject error) {
 
+    }
+
+    public void listen_parseAndWorkoutListenedObject(String peerId, EJSONObject payload) {
+        // must be fast!
     }
 
     public String issueAndRegisterSessionKeyForPeer(String peerId) {
@@ -456,14 +515,14 @@ public final class SpaceV2 {
         } catch (NoSuchAlgorithmException | NoSuchProviderException ex) {
             return null; // always works, no problem
         }
-        
+
     }
 
     public boolean saveAndRegisterSessionKeyForPeer(String peerId, String k) {
         // OUT keys
         for (int i = 0; i < peers.length; i++) {
             SpacePeer peer = peers[i];
-            if(peer.getUid().equals(peerId)) {
+            if (peer.getUid().equals(peerId)) {
                 spaceCryptos.createAndStoreKey(peerId + ":OUT", k);
                 return true;
             }
@@ -485,8 +544,8 @@ public final class SpaceV2 {
 
     public String encrypt(String keyID, String s) {
         if (keyID == null) {
-            keyID = "DEFAULT";
-        } else {
+            keyID = DEFAULT_CRYPTO_KEY;
+        } else if(!keyID.equals(DEFAULT_CRYPTO_KEY)) {
             keyID = keyID + ":OUT"; // this is the session key received from the other peer
         }
         return spaceCryptos.decryptInline(keyID, s);
@@ -494,8 +553,8 @@ public final class SpaceV2 {
 
     public String decrypt(String keyID, String s) {
         if (keyID == null) {
-            keyID = "DEFAULT";
-        } else {
+            keyID = DEFAULT_CRYPTO_KEY;
+        } else if(!keyID.equals(DEFAULT_CRYPTO_KEY)) {
             keyID = keyID + ":IN"; // this is my generated session key for the peer
         }
         return spaceCryptos.encryptInline(keyID, s);
@@ -565,6 +624,70 @@ public final class SpaceV2 {
         }
     }
 
+    private <T> void markForSpace_CREATE(T item) {
+        markForSpace_UPDATE(item);
+    }
+
+    private <T> void markForSpace_UPDATE(T item) {
+        if (item instanceof IHyperspaceEntity) {
+            for (SpacePeer peer : peers) {
+                UpdateEntry e = new UpdateEntry();
+                e.setClazzname(item.getClass().getSimpleName());
+                e.setLastUpdated(System.currentTimeMillis());
+                e.setPeer(peer.getUid());
+                e.setTarget(((IHyperspaceEntity) item).uid());
+                create(e);
+            }
+        }
+    }
+
+    private <T> void markForSpace_DELETE(T item) {
+        if (item instanceof IHyperspaceEntity) {
+            for (SpacePeer peer : peers) {
+                DeleteEntry e = new DeleteEntry();
+                e.setClazzname(item.getClass().getSimpleName());
+                e.setLastDeleted(System.currentTimeMillis());
+                e.setPeer(peer.getUid());
+                e.setTarget(((IHyperspaceEntity) item).uid());
+                create(e);
+            }
+        }
+    }
+
+    private <T> void markForSpace_CREATE(List<T> items) {
+        markForSpace_UPDATE(items);
+    }
+
+    private <T> void markForSpace_UPDATE(List<T> items) {
+        if (items.get(0) instanceof IHyperspaceEntity) {
+            for (T item : items) {
+                for (SpacePeer peer : peers) {
+                    UpdateEntry e = new UpdateEntry();
+                    e.setClazzname(item.getClass().getSimpleName());
+                    e.setLastUpdated(System.currentTimeMillis());
+                    e.setPeer(peer.getUid());
+                    e.setTarget(((IHyperspaceEntity) item).uid());
+                    create(e);
+                }
+            }
+        }
+    }
+
+    private <T> void markForSpace_DELETE(List<T> items) {
+        if (items.get(0) instanceof IHyperspaceEntity) {
+            for (T item : items) {
+                for (SpacePeer peer : peers) {
+                    DeleteEntry e = new DeleteEntry();
+                    e.setClazzname(item.getClass().getSimpleName());
+                    e.setLastDeleted(System.currentTimeMillis());
+                    e.setPeer(peer.getUid());
+                    e.setTarget(((IHyperspaceEntity) item).uid());
+                    create(e);
+                }
+            }
+        }
+    }
+
     // ========================================================================
     // Tokens utility methods
     // Tokens mod is almost not used, in general we work on the model classes
@@ -577,7 +700,7 @@ public final class SpaceV2 {
     // There should be here some kinf of Locking TODO
     // (they very well may use the public api of course for meta types entities)
     // ========================================================================
-    // PUBLIC API CRUD
+    // PUBLIC API C(R)UD
     // =====================
     /**
      *
@@ -610,6 +733,7 @@ public final class SpaceV2 {
             } else if (em != null) {
                 if (IS_REAL_SPACE) {
                     // -
+                    markForSpace_CREATE(item);
                 }
                 createForCacheListeners(item);
             }
@@ -639,6 +763,7 @@ public final class SpaceV2 {
             } else if (em != null) {
                 if (IS_REAL_SPACE) {
                     // -
+                    markForSpace_UPDATE(item);
                 }
                 updateForCacheListeners(item);
             }
@@ -668,6 +793,7 @@ public final class SpaceV2 {
             } else if (em != null) {
                 if (IS_REAL_SPACE) {
                     // -
+                    markForSpace_DELETE(item);
                 }
                 deleteForCacheListeners(item);
             }
@@ -712,6 +838,7 @@ public final class SpaceV2 {
                 } else if (em != null) {
                     if (IS_REAL_SPACE) {
                         //-
+                        markForSpace_CREATE(items);
                     }
                     createForCacheListeners(items);
                 }
@@ -759,6 +886,7 @@ public final class SpaceV2 {
                 } else if (em != null) {
                     if (IS_REAL_SPACE) {
                         // -
+                        markForSpace_UPDATE(items);
                     }
                     updateForCacheListeners(items);
                 }
@@ -805,6 +933,7 @@ public final class SpaceV2 {
                 } else if (em != null) {
                     if (IS_REAL_SPACE) {
                         // -
+                        markForSpace_DELETE(items);
                     }
                     deleteForCacheListeners(items);
                 }
@@ -1155,6 +1284,17 @@ public final class SpaceV2 {
         } else {
             return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to + "L AND c." + name + " = '" + value + "'", null);
         }
+    }
+    
+    // =================================================================================================
+    // special retrievers and tool methods for hyperspace
+    
+    private List<DeleteEntry> retrievePendingDeletesForPeer(String peerId) {
+        
+    }
+    
+    private List<UpdateEntry> retrievePendingUpdatesForPeer(String peerId) {
+        
     }
 
 }

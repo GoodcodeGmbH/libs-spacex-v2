@@ -14,6 +14,7 @@ public class SpacePeer {
     private String uid;
     private String host;
     private int port;
+    private boolean connected;
 
     public String getHost() {
         return host;
@@ -37,6 +38,14 @@ public class SpacePeer {
 
     public void setPort(int port) {
         this.port = port;
+    }
+
+    public boolean isConnected() {
+        return connected;
+    }
+
+    public void setConnected(boolean connected) {
+        this.connected = connected;
     }
     
     

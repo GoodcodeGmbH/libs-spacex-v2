@@ -5,18 +5,25 @@
  */
 package ch.goodcode.spacex.v2.engine;
 
+import java.io.Serializable;
+import javax.persistence.Entity;
+import javax.persistence.Id;
+
 /**
  *
  * @author pdome
  */
-public class DeleteEntry {
-     public static final long serialVersionUID = UpdateEntry.class.getCanonicalName().hashCode();
-    
+@Entity
+public class DeleteEntry implements Serializable {
+
+    public static final long serialVersionUID = UpdateEntry.class.getCanonicalName().hashCode();
+
+    @Id
+    private String uid;
     private String clazzname;
     private String target;
     private String peer;
     private long lastDeleted;
-
 
     public String getClazzname() {
         return clazzname;

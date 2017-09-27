@@ -35,6 +35,7 @@ public final class MiniClient {
     }
 
     public void start() {
+        LOG.o("MiniClient for peer '"+remotePeerId+"' started.");
        launchConnectorThread();
     }
 
@@ -42,6 +43,7 @@ public final class MiniClient {
         try {
             clientOutputStream.close();
             socketConnection.close();
+            LOG.o("MiniClient for peer '"+remotePeerId+"' properly disposed.");
         } catch (IOException ex) {
             LOG.e("Error disposing with MiniClient.stop() for " + remoteServerHost + ":" + remoteServerPort, ex);
         }
@@ -73,8 +75,8 @@ public final class MiniClient {
                     clientOutputStream = new ObjectOutputStream(socketConnection.getOutputStream());
                     connected = true;
                     LOG.i("MiniClient connection worker has connected to "+remoteServerHost+":"+remoteServerPort+".");
-                    EncryptedMessageObject sueMessage_ANNOUNCE = spaceForCallback.issueMessage_ANNOUNCE_request(this.remotePeerId);
-                    sendMessage(sueMessage_ANNOUNCE);
+                    EncryptedMessageObject announce = spaceForCallback.issueMessage_ANNOUNCE_request(remotePeerId);
+                    sendMessage(announce);
                 } catch (Exception ex) {
                     LOG.i("MiniClient connection worker: "+remoteServerHost+":"+remoteServerPort+" unreachable, retrying in 10 sec.");
                 }

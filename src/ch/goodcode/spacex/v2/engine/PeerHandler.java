@@ -19,31 +19,38 @@ import java.net.Socket;
  */
 public class PeerHandler extends Thread {
 
+    private final MiniServer serverForCallback;
+    private final String serverStrangeId;
     private final SpaceV2 spaceForCallback;
     private final Socket socket;
     private final ObjectInputStream inputStream;
     private final String clientHost;
-    private final int localClientPort;
     private final LogBuffer LOG;
     private String remotePeerId;
 
-    public PeerHandler(SpaceV2 spaceForCallback, Socket socket, LogBuffer LOG) throws IOException {
+    public PeerHandler(SpaceV2 spaceForCallback, MiniServer serverForCallback, String serverStrangeId, Socket socket, LogBuffer LOG) throws IOException {
         this.spaceForCallback = spaceForCallback;
         this.socket = socket;
         inputStream = new ObjectInputStream(this.socket.getInputStream());
         this.clientHost = socket.getInetAddress().toString();
-        this.localClientPort = socket.getPort();
         this.LOG = LOG;
+        this.serverForCallback = serverForCallback;
+        this.serverStrangeId = serverStrangeId;
     }
 
     @Override
     public void run() {
-        while (true) {
+        boolean go = true;
+        while (go) {
             try {
                 EncryptedMessageObject o = (EncryptedMessageObject) inputStream.readObject();
                 handleMessage(o);
             } catch (Exception e) {
-                LOG.i("Error in ClientHandler loop listening for " + clientHost);
+                LOG.i("Connection lost in PeerHandler loop listening for peer '" + remotePeerId + "' (" + clientHost + ") ["+serverStrangeId+"]. "
+                        + "This PeerHandler will be terminated and a new one will be issued if necessary when the peer will come in again.");
+                go = false;
+                serverForCallback.markDeadPeerHandler(serverStrangeId);
+                spaceForCallback.markDisconnectedForOUT(remotePeerId);
             }
         }
     }
@@ -75,6 +82,9 @@ public class PeerHandler extends Thread {
                         // it is a login, payload is still encrypted because it has new encryption key
                         boolean ans = spaceForCallback.listen_login(remotePeerId, payload);
                         spaceForCallback.issueMessage_LOGIN_answer(remotePeerId, ans);
+                        if(ans) {
+                            spaceForCallback.markConnectedForOUT(remotePeerId);
+                        }
                     } else if (payload != null) {
                         // LOGIN ANSWER
                         if (payload.equals("OK")) {
