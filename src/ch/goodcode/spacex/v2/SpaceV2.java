@@ -117,7 +117,7 @@ public final class SpaceV2 {
      * @param odbFilePath
      */
     public SpaceV2(String uid, String logPath, int logLevel, String odbFilePath) {
-        LOG = new LogBuffer("spacev2-" + uid, logPath, 1000, logLevel);
+        LOG = new LogBuffer("spacev2-" + uid, logPath, 1, logLevel);
         IS_REAL_SPACE = false;
         odbConf = null;
         spaceConf = null;
@@ -465,8 +465,10 @@ public final class SpaceV2 {
             } else {
                 // -
             }
+        } catch (Exception e) {
+            LOG.e("Exception in create()", e);
         } finally {
-            if (em.getTransaction().isActive()) {
+            if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
             } else {
                 if (IS_REAL_SPACE) {
@@ -492,8 +494,10 @@ public final class SpaceV2 {
             } else {
                 // -
             }
+        } catch (Exception e) {
+            LOG.e("Exception in update()", e);
         } finally {
-            if (em.getTransaction().isActive()) {
+            if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
             } else {
                 if (IS_REAL_SPACE) {
@@ -519,8 +523,10 @@ public final class SpaceV2 {
             } else {
                 // -
             }
+        } catch (Exception e) {
+            LOG.e("Exception in delete()", e);
         } finally {
-            if (em.getTransaction().isActive()) {
+            if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
             } else {
                 if (IS_REAL_SPACE) {
@@ -561,8 +567,10 @@ public final class SpaceV2 {
                 } else {
                     // -
                 }
+            } catch (Exception e) {
+                LOG.e("Exception in create(List<>)", e);
             } finally {
-                if (em.getTransaction().isActive()) {
+                if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
                 } else {
                     if (IS_REAL_SPACE) {
@@ -606,8 +614,10 @@ public final class SpaceV2 {
                 } else {
                     // -
                 }
+            } catch (Exception e) {
+                LOG.e("Exception in update(List<>)", e);
             } finally {
-                if (em.getTransaction().isActive()) {
+                if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
                 } else {
                     if (IS_REAL_SPACE) {
@@ -650,8 +660,10 @@ public final class SpaceV2 {
                 } else {
                     // -
                 }
+            } catch (Exception e) {
+                LOG.e("Exception in delete(List<>)", e);
             } finally {
-                if (em.getTransaction().isActive()) {
+                if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
                 } else {
                     if (IS_REAL_SPACE) {
@@ -667,11 +679,10 @@ public final class SpaceV2 {
     // ========================================================================
     // PUBLIC API Retrieval (BASE)
     // =====================
-    
     /**
-     * 
+     *
      * @param key
-     * @return 
+     * @return
      */
     public String readRegVar(String key) {
         if (key != null) {
@@ -687,20 +698,22 @@ public final class SpaceV2 {
     }
 
     /**
-     * 
+     *
      * @param key
-     * @param value 
+     * @param value
      */
     public void writeregVar(String key, String value) {
         if (key != null) {
             RegVar get = get(RegVar.class, key);
             if (get != null) {
-                delete(get);
+                get.setValue(value);
+                update(get);
+            } else {
+                RegVar v = new RegVar();
+                v.setKey(key);
+                v.setValue(value);
+                create(v);
             }
-            RegVar v = new RegVar();
-            v.setKey(key);
-            v.setValue(value);
-            create(v);
         }
     }
 
