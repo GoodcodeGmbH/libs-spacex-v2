@@ -16,15 +16,12 @@ import ch.goodcode.spacex.v2.engine.MiniServer;
 import ch.goodcode.spacex.v2.engine.RegVar;
 import ch.goodcode.spacex.v2.engine.TokensPolicy;
 import java.io.File;
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import javax.persistence.Entity;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
-import javax.persistence.Id;
 import javax.persistence.Persistence;
 import javax.persistence.Query;
 import javax.persistence.TypedQuery;
@@ -463,14 +460,14 @@ public final class SpaceV2 {
                 em.persist(item);
                 em.getTransaction().commit();
             } else {
-                // -
+                LOG.e("Null Entity manager in create()");
             }
         } catch (Exception e) {
-            LOG.e("Exception in create()", e);
+            LOG.e("Transaction exception in create()", e);
         } finally {
             if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
-            } else {
+            } else if (em != null) {
                 if (IS_REAL_SPACE) {
                     // -
                 }
@@ -492,14 +489,14 @@ public final class SpaceV2 {
                 em.merge(item);
                 em.getTransaction().commit();
             } else {
-                // -
+                LOG.e("Null Entity manager in update()");
             }
         } catch (Exception e) {
-            LOG.e("Exception in update()", e);
+            LOG.e("Transaction exception in update()", e);
         } finally {
             if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
-            } else {
+            } else if (em != null) {
                 if (IS_REAL_SPACE) {
                     // -
                 }
@@ -521,14 +518,14 @@ public final class SpaceV2 {
                 em.remove(item);
                 em.getTransaction().commit();
             } else {
-                // -
+                LOG.e("Null Entity manager in delete()");
             }
         } catch (Exception e) {
-            LOG.e("Exception in delete()", e);
+            LOG.e("Transaction exception in delete()", e);
         } finally {
             if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
-            } else {
+            } else if (em != null) {
                 if (IS_REAL_SPACE) {
                     // -
                 }
@@ -565,14 +562,14 @@ public final class SpaceV2 {
                     }
                     em.getTransaction().commit();
                 } else {
-                    // -
+                    LOG.e("Null Entity manager in create(List<>)");
                 }
             } catch (Exception e) {
-                LOG.e("Exception in create(List<>)", e);
+                LOG.e("Transaction exception in create(List<>)", e);
             } finally {
                 if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
-                } else {
+                } else if (em != null) {
                     if (IS_REAL_SPACE) {
                         //-
                     }
@@ -612,14 +609,14 @@ public final class SpaceV2 {
                     }
                     em.getTransaction().commit();
                 } else {
-                    // -
+                    LOG.e("Null Entity manager in update(List<>)");
                 }
             } catch (Exception e) {
-                LOG.e("Exception in update(List<>)", e);
+                LOG.e("Transaction exception in update(List<>)", e);
             } finally {
                 if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
-                } else {
+                } else if (em != null) {
                     if (IS_REAL_SPACE) {
                         // -
                     }
@@ -658,14 +655,14 @@ public final class SpaceV2 {
                     }
                     em.getTransaction().commit();
                 } else {
-                    // -
+                    LOG.e("Null Entity manager in delete(List<>)");
                 }
             } catch (Exception e) {
-                LOG.e("Exception in delete(List<>)", e);
+                LOG.e("Transaction exception in delete(List<>)", e);
             } finally {
                 if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
-                } else {
+                } else if (em != null) {
                     if (IS_REAL_SPACE) {
                         // -
                     }
