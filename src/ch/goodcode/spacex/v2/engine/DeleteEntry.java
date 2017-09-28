@@ -56,4 +56,14 @@ public class DeleteEntry implements Serializable {
     public void setLastDeleted(long lastUpdated) {
         this.lastDeleted = lastUpdated;
     }
+
+    public String getUid() {
+        return uid;
+    }
+
+    public void setUid(String uid) {
+        this.uid = uid;
+    }
+    
+    
 }

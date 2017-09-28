@@ -203,13 +203,10 @@ public final class SpaceV2 {
                 EJSONObject backup = mainUnitJson.getObject("backup");
                 if (backup != null) {
                     String target = backup.getString("target");
-                    tmanager.fetchDaemon(new Runnable() {
-                        @Override
-                        public void run() {
-                            Query backupQuery = mainEMF.createEntityManager().createQuery("objectdb backup");
-                            backupQuery.setParameter("target", new java.io.File(target));
-                            backupQuery.getSingleResult();
-                        }
+                    tmanager.fetchDaemon(() -> {
+                        Query backupQuery = mainEMF.createEntityManager().createQuery("objectdb backup");
+                        backupQuery.setParameter("target", new java.io.File(target));
+                        backupQuery.getSingleResult();
                     }, 5000L, backup.getInteger("schedule") * GOOUtils.TIME_HOURS);
                 }
             }
@@ -231,13 +228,10 @@ public final class SpaceV2 {
                             EJSONObject backup = unitJson.getObject("backup");
                             if (backup != null) {
                                 String target = backup.getString("target");
-                                tmanager.fetchDaemon(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
-                                        backupQuery.setParameter("target", new java.io.File(target));
-                                        backupQuery.getSingleResult();
-                                    }
+                                tmanager.fetchDaemon(() -> {
+                                    Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
+                                    backupQuery.setParameter("target", new java.io.File(target));
+                                    backupQuery.getSingleResult();
                                 }, 5000L, backup.getInteger("schedule") * GOOUtils.TIME_HOURS);
 
                             }
@@ -254,13 +248,10 @@ public final class SpaceV2 {
                         EJSONObject backup = unitJson.getObject("backup");
                         if (backup != null) {
                             String target = backup.getString("target");
-                            tmanager.fetchDaemon(new Runnable() {
-                                @Override
-                                public void run() {
-                                    Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
-                                    backupQuery.setParameter("target", new java.io.File(target));
-                                    backupQuery.getSingleResult();
-                                }
+                            tmanager.fetchDaemon(() -> {
+                                Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
+                                backupQuery.setParameter("target", new java.io.File(target));
+                                backupQuery.getSingleResult();
                             }, 5000L, backup.getInteger("schedule") * GOOUtils.TIME_HOURS);
 
                         }
@@ -311,6 +302,7 @@ public final class SpaceV2 {
                         for (UpdateEntry updateEntry : retrievePendingUpdatesForPeer) {
 
                         }
+                        // then send objects
                     }
                 }
             },
@@ -325,6 +317,7 @@ public final class SpaceV2 {
                         for (DeleteEntry deleteEntry : retrievePendingDeletesForPeer) {
 
                         }
+                        // then send delete messages
                     }
                 }
             },
@@ -335,9 +328,9 @@ public final class SpaceV2 {
         }
 
         if (IS_REAL_SPACE) {
-            LOG.o("SV2 full instance '" + myId + " with its Space (for " + peers.length + " registered peers) has properly started. Good work.");
+            LOG.o("SV2 full instance '" + myId + " with its Space (for " + peers.length + " registered peers) has properly started. Have a nice day.");
         } else {
-            LOG.o("SV2 instance '" + myId + " has properly started. Good work.");
+            LOG.o("SV2 instance '" + myId + " has properly started. Have a nice day.");
         }
     }
 
@@ -1288,11 +1281,11 @@ public final class SpaceV2 {
     // =================================================================================================
     // special retrievers and tool methods for hyperspace
     private List<DeleteEntry> retrievePendingDeletesForPeer(String peerId) {
-
+        return findAll_MATCH(DeleteEntry.class, "peer", peerId, 0);
     }
 
     private List<UpdateEntry> retrievePendingUpdatesForPeer(String peerId) {
-
+        return findAll_MATCH(UpdateEntry.class, "peer", peerId, 0);
     }
 
 }
