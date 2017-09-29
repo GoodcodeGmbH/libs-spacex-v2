@@ -9,6 +9,7 @@ package ch.goodcode.spacex.v2.cluster;
  *
  * @author Paolo Domenighetti
  */
-public class HyperspaceClustersV2 {
-    
+public final class CloudV2 {
+    // a coherent set of parallel clusters with fancy options
+    // and clous exposure to public users
 }

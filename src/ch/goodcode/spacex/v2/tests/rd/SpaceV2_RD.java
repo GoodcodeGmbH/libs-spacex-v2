@@ -5,6 +5,7 @@
  */
 package ch.goodcode.spacex.v2.tests.rd;
 
+import ch.goodcode.spacex.v2.compute.SpacePeer;
 import ch.goodcode.spacex.v2.*;
 import ch.goodcode.libs.logging.LogBuffer;
 import ch.goodcode.libs.io.EnhancedFilesystemIO;

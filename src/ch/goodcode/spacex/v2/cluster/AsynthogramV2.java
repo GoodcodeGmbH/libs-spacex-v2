@@ -9,6 +9,7 @@ package ch.goodcode.spacex.v2.cluster;
  *
  * @author Paolo Domenighetti
  */
-public class AsynthogramV2 {
-    
+public final class AsynthogramV2 {
+    // is a strange way to conceive universa tied together in some way
+    // full R&D!!!!
 }

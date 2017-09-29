@@ -9,6 +9,9 @@ package ch.goodcode.spacex.v2.cluster;
  *
  * @author Paolo Domenighetti
  */
-public class UniversumV2 {
-    
+public final class UniversumV2 {
+    //a set and context for a cloud grouping
+    // highest grouping in hierarchy, multiple universes
+    // are invisible to each other, only developer
+    // has to implement a way to make them live together and talk coherently!
 }
