@@ -53,6 +53,7 @@ public final class MiniClient {
         if (connected) {
             try {
                 clientOutputStream.writeObject(m);
+                LOG.i("MiniClient for peer '"+remotePeerId+"' sent "+m.getUid());
                 return true;
             } catch (IOException ex) {
                 LOG.e("I/O Issue in MiniClient.sendMessage() for " + remoteServerHost + ":" + remoteServerPort, ex);
@@ -74,7 +75,7 @@ public final class MiniClient {
                     socketConnection = new Socket(remoteServerHost, remoteServerPort);
                     clientOutputStream = new ObjectOutputStream(socketConnection.getOutputStream());
                     connected = true;
-                    LOG.i("MiniClient connection worker has connected to "+remoteServerHost+":"+remoteServerPort+".");
+                    LOG.o("MiniClient connection worker has connected to "+remoteServerHost+":"+remoteServerPort+".");
                     EncryptedMessageObject announce = spaceForCallback.issueMessage_ANNOUNCE_request(remotePeerId);
                     sendMessage(announce);
                 } catch (Exception ex) {

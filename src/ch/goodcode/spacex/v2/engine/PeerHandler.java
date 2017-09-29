@@ -27,6 +27,7 @@ public class PeerHandler extends Thread {
     private final String clientHost;
     private final LogBuffer LOG;
     private String remotePeerId;
+    private boolean go = true;
 
     public PeerHandler(SpaceV2 spaceForCallback, MiniServer serverForCallback, String serverStrangeId, Socket socket, LogBuffer LOG) throws IOException {
         this.spaceForCallback = spaceForCallback;
@@ -40,13 +41,13 @@ public class PeerHandler extends Thread {
 
     @Override
     public void run() {
-        boolean go = true;
         while (go) {
             try {
                 EncryptedMessageObject o = (EncryptedMessageObject) inputStream.readObject();
+                LOG.i("PeerHandler for peer '" + remotePeerId + "' received " + o.getUid());
                 handleMessage(o);
             } catch (Exception e) {
-                LOG.i("Connection lost in PeerHandler loop listening for peer '" + remotePeerId + "' (" + clientHost + ") ["+serverStrangeId+"]. "
+                LOG.o("Connection lost in PeerHandler loop listening for peer '" + remotePeerId + "' (" + clientHost + ") [" + serverStrangeId + "]. "
                         + "This PeerHandler will be terminated and a new one will be issued if necessary when the peer will come in again.");
                 go = false;
                 serverForCallback.markDeadPeerHandler(serverStrangeId);
@@ -66,14 +67,20 @@ public class PeerHandler extends Thread {
                     final String k = spaceForCallback.issueAndRegisterSessionKeyForPeer(remotePeerId);
                     EncryptedMessageObject nm = spaceForCallback.issueMessage_ANNOUNCE_answer(k);
                     spaceForCallback.sendMessageToPeer(remotePeerId, nm);
+                    LOG.i("PeerHandler.handleMessage() for peer '" + remotePeerId + "' ANNOUNCE received and ANNOUNCE ANSWER sent.");
                 } else if (payload != null && payload.startsWith("KEYED:")) {
                     // ANNOUNCE ANSWER
                     boolean announced = spaceForCallback.saveAndRegisterSessionKeyForPeer(remotePeerId, payload.split(":")[1]);
                     if (announced) {
                         EncryptedMessageObject nm = spaceForCallback.issueMessage_LOGIN_request(remotePeerId);
                         spaceForCallback.sendMessageToPeer(remotePeerId, nm);
+                        LOG.i("PeerHandler.handleMessage() for peer '" + remotePeerId + "' ANNOUNCE ANSWER received and LOGIN REQUEST sent.");
                     } else {
                         // the other peer do not know me, abort everything
+                        LOG.e("PeerHandler.handleMessage() for peer '" + remotePeerId + "' ANNOUNCE received but the peer is UNKNOWN! The handler will be terminated.");
+                        serverForCallback.markDeadPeerHandler(serverStrangeId);
+                        spaceForCallback.markDisconnectedForOUT(remotePeerId);
+                        go = false;
                     }
                 } else {
                     payload = spaceForCallback.decrypt(remotePeerId, m.getPayload());
@@ -82,18 +89,30 @@ public class PeerHandler extends Thread {
                         // it is a login, payload is still encrypted because it has new encryption key
                         boolean ans = spaceForCallback.listen_login(remotePeerId, payload);
                         spaceForCallback.issueMessage_LOGIN_answer(remotePeerId, ans);
-                        if(ans) {
+                        if (ans) {
                             spaceForCallback.markConnectedForOUT(remotePeerId);
+                            LOG.i("PeerHandler.handleMessage() for peer '" + remotePeerId + "' LOGIN REQUEST received: LOGGED IN!.");
+                        } else {
+                            LOG.e("PeerHandler.handleMessage() for peer '" + remotePeerId + "' LOGIN REQUEST received: FORBIDDEN for him!");
+                            serverForCallback.markDeadPeerHandler(serverStrangeId);
+                            spaceForCallback.markDisconnectedForOUT(remotePeerId);
+                            go = false;
                         }
                     } else if (payload != null) {
                         // LOGIN ANSWER
                         if (payload.equals("OK")) {
                             // i'am logged to other's server
+                            LOG.o("PeerHandler.handleMessage() for peer '" + remotePeerId + "' LOGIN REQUEST received: LOGGED IN!.");
                         } else {
                             // nope
+                            LOG.o("PeerHandler.handleMessage() for peer '" + remotePeerId + "' LOGIN REQUEST received: LOGGED IN!.");
                         }
                     } else {
                         // security breach/issue/error
+                        LOG.e("PeerHandler.handleMessage() for peer '" + remotePeerId + "' Security/Encryption error (" + kind + ")!");
+                        serverForCallback.markDeadPeerHandler(serverStrangeId);
+                        spaceForCallback.markDisconnectedForOUT(remotePeerId);
+                        go = false;
                     }
                 }
                 break;
@@ -102,39 +121,56 @@ public class PeerHandler extends Thread {
 
                 if (decrypted != null) {
                     EJSONObject meta = new EJSONObject(decrypted);
+                    LOG.i("PeerHandler.handleMessage() for peer '" + remotePeerId + "', go for listen_meta().");
                     spaceForCallback.listen_meta(m.getFromPeer(), meta);
                 } else {
                     // security breach/issue/error
+                    LOG.e("PeerHandler.handleMessage() for peer '" + remotePeerId + "' Security/Encryption error (" + kind + ")!");
+                    serverForCallback.markDeadPeerHandler(serverStrangeId);
+                    spaceForCallback.markDisconnectedForOUT(remotePeerId);
+                    go = false;
                 }
                 break;
             case EncryptedMessageObject.KIND_ERROR:
                 decrypted = spaceForCallback.decrypt(remotePeerId, m.getPayload());
                 if (decrypted != null) {
                     EJSONObject error = new EJSONObject(decrypted);
+                    LOG.i("PeerHandler.handleMessage() for peer '" + remotePeerId + "', go for listen_error().");
                     spaceForCallback.listen_error(m.getFromPeer(), error);
                 } else {
-
+                    // security breach/issue/error
+                    LOG.e("PeerHandler.handleMessage() for peer '" + remotePeerId + "' Security/Encryption error (" + kind + ")!");
+                    serverForCallback.markDeadPeerHandler(serverStrangeId);
+                    spaceForCallback.markDisconnectedForOUT(remotePeerId);
+                    go = false;
                 }
                 break;
             case EncryptedMessageObject.KIND_MOBJECT:
                 decrypted = spaceForCallback.decrypt(remotePeerId, m.getPayload());
                 if (decrypted != null) {
                     EJSONArray arr = new EJSONArray(decrypted);
-                    for (int i = 0; i < arr.size(); i++) {
-                        EJSONObject object = arr.getObject(i);
-                        spaceForCallback.listen_parseAndWorkoutListenedObject(remotePeerId, object);
-                    }
+                    LOG.i("PeerHandler.handleMessage() for peer '" + remotePeerId + "', go for listen_parseAndWorkoutListenedObjects().");
+                    spaceForCallback.listen_parseAndWorkoutListenedObjects(m.getFromPeer(), arr);
                 } else {
                     // security breach/issue/error
+                    LOG.e("PeerHandler.handleMessage() for peer '" + remotePeerId + "' Security/Encryption error (" + kind + ")!");
+                    serverForCallback.markDeadPeerHandler(serverStrangeId);
+                    spaceForCallback.markDisconnectedForOUT(remotePeerId);
+                    go = false;
                 }
                 break;
             default: // object
                 decrypted = spaceForCallback.decrypt(remotePeerId, m.getPayload());
                 if (decrypted != null) {
                     EJSONObject json = new EJSONObject(decrypted);
+                    LOG.i("PeerHandler.handleMessage() for peer '" + remotePeerId + "', go for listen_parseAndWorkoutListenedObject().");
                     spaceForCallback.listen_parseAndWorkoutListenedObject(m.getFromPeer(), json);
                 } else {
                     // security breach/issue/error
+                    LOG.e("PeerHandler.handleMessage() for peer '" + remotePeerId + "' Security/Encryption error (" + kind + ")!");
+                    serverForCallback.markDeadPeerHandler(serverStrangeId);
+                    spaceForCallback.markDisconnectedForOUT(remotePeerId);
+                    go = false;
                 }
                 break;
         }

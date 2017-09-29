@@ -7,14 +7,18 @@ package ch.goodcode.spacex.v2;
 
 import ch.goodcode.libs.logging.LogBuffer;
 import ch.goodcode.libs.io.EnhancedFilesystemIO;
+import ch.goodcode.libs.io.serialization.Java2JSONSerializer;
 import ch.goodcode.libs.security.CryptoEngine;
 import ch.goodcode.libs.security.EnhancedCryptography;
 import ch.goodcode.libs.security.PermissionEngine;
 import ch.goodcode.libs.threading.ThreadManager;
 import ch.goodcode.libs.utils.GOOUtils;
+import ch.goodcode.libs.utils.ReflectUtils;
 import ch.goodcode.libs.utils.dataspecs.EJSONArray;
 import ch.goodcode.libs.utils.dataspecs.EJSONObject;
+import ch.goodcode.spacex.v2.engine.AckEntry;
 import ch.goodcode.spacex.v2.engine.DeleteEntry;
+import ch.goodcode.spacex.v2.engine.DeleteMessage;
 import ch.goodcode.spacex.v2.engine.EncryptedMessageObject;
 import ch.goodcode.spacex.v2.engine.MiniClient;
 import ch.goodcode.spacex.v2.engine.MiniServer;
@@ -42,6 +46,15 @@ import javax.persistence.TypedQuery;
 public final class SpaceV2 {
 
     // ======================================================================================================================================
+    private static final ArrayList<String> INNER_CLAZZES_NAMES = new ArrayList<>();
+    
+    static {
+        INNER_CLAZZES_NAMES.add(UpdateEntry.class.getName());
+        INNER_CLAZZES_NAMES.add(DeleteEntry.class.getName());
+        INNER_CLAZZES_NAMES.add(AckEntry.class.getName());
+        
+    }
+    
     private static final String DEFAULT_CRYPTO_KEY_ID = "DEFAULT";
     private static final String DEFAULT_ISO_KEY = "DgVC7DaGMq9+fwnt+bjaZg==";
     private static final int EMF_SIZE_LIMIT = 1_000_000;
@@ -70,7 +83,7 @@ public final class SpaceV2 {
     private final EJSONObject odbConf;
     private final String optHostFull;
     private String optUser, optPass;
-    private final ThreadManager tmanager = new ThreadManager(15, 100);
+    private final ThreadManager tmanager = new ThreadManager(100, 100);
 
     // -
     private final EJSONObject spaceConf;
@@ -286,6 +299,7 @@ public final class SpaceV2 {
                 // for every registered peer prepare the com client to send messages (when they will be online):
                 MiniClient c = new MiniClient(this, peer.getHost(), peer.getPort(), peer.getUid(), LOG);
                 c.start();
+                clients.put(peer.getUid(), c);
             }
 
             // TODO init permissions and cryptos!!!!
@@ -295,34 +309,34 @@ public final class SpaceV2 {
             //..
             //..
             // space updater
-            tmanager.fetchDaemon(() -> {
-                for (SpacePeer peer : peers) {
+            for (SpacePeer peer : peers) {
+                tmanager.fetchDaemon(() -> {
                     if (peer.isConnected()) {
-                        List<UpdateEntry> retrievePendingUpdatesForPeer = retrievePendingUpdatesForPeer(peer.getUid());
-                        for (UpdateEntry updateEntry : retrievePendingUpdatesForPeer) {
-
+                        ArrayList<UpdateEntry> tbdel = new ArrayList<>();
+                        ArrayList<Object> retrieveToBeUpdatedEntities = retrieveToBeUpdatedEntities(peer.getUid(), tbdel);
+                        boolean ok = sendObjectsToPeer(peer.getUid(), retrieveToBeUpdatedEntities);
+                        if(ok) {
+                            
                         }
-                        // then send objects
                     }
-                }
-            },
-                    GOOUtils.TIME_SECONDS,
-                    20 * GOOUtils.TIME_SECONDS);
+
+                },
+                        GOOUtils.TIME_SECONDS,
+                        20 * GOOUtils.TIME_SECONDS);
+            }
 
             // space deleter
-            tmanager.fetchDaemon(() -> {
-                for (SpacePeer peer : peers) {
+            for (SpacePeer peer : peers) {
+                tmanager.fetchDaemon(() -> {
                     if (peer.isConnected()) {
-                        List<DeleteEntry> retrievePendingDeletesForPeer = retrievePendingDeletesForPeer(peer.getUid());
-                        for (DeleteEntry deleteEntry : retrievePendingDeletesForPeer) {
-
-                        }
-                        // then send delete messages
+                        ArrayList<DeleteEntry> tbdel = new ArrayList<>();
+                        List<DeleteMessage> sueToBeDeletedMessages = issueToBeDeletedMessages(peer.getUid(), tbdel);
                     }
-                }
-            },
-                    GOOUtils.TIME_SECONDS,
-                    20 * GOOUtils.TIME_SECONDS);
+
+                },
+                        GOOUtils.TIME_SECONDS,
+                        20 * GOOUtils.TIME_SECONDS);
+            }
 
             LOG.o("SV2 Space is ready.");
         }
@@ -485,6 +499,7 @@ public final class SpaceV2 {
     }
 
     public void listen_meta(String peerId, EJSONObject meta) {
+        // they are either delete messages or ack messages
 
     }
 
@@ -492,6 +507,10 @@ public final class SpaceV2 {
 
     }
 
+    public void listen_parseAndWorkoutListenedObjects(String peerId, EJSONArray payload) {
+        // must be fast!
+    }
+    
     public void listen_parseAndWorkoutListenedObject(String peerId, EJSONObject payload) {
         // must be fast!
     }
@@ -521,17 +540,29 @@ public final class SpaceV2 {
         }
         return false;
     }
-
+    
     public void sendMessageToPeer(String peerId, EncryptedMessageObject m) {
-
+        
     }
 
-    public void sendObjectToPeer(String peerId, EJSONObject payload) {
-
+    public boolean sendDeleteMessageToPeer(String peerId, List<DeleteMessage> msgs) {
+        return false;
     }
 
-    public void sendObjectsToPeer(String peerId, EJSONArray payload) {
-
+    public boolean sendObjectsToPeer(String peerId, List<Object> objects) {
+        long t = System.currentTimeMillis();
+        EJSONArray a = new EJSONArray();
+        for (Object object : objects) {
+            a.addObject(ser(object));
+        }
+        EncryptedMessageObject o = new EncryptedMessageObject(
+                mid("sendObjectsToPeer", t),
+                EncryptedMessageObject.KIND_MOBJECT,
+                encrypt(peerId, a.toJSONString()),
+                myId,
+                t
+        );
+        return clients.get(peerId).sendMessage(o);
     }
 
     public String encrypt(String keyID, String s) {
@@ -614,6 +645,14 @@ public final class SpaceV2 {
             emsT.put(currentThread.getId(), System.currentTimeMillis());
             return ems.get(currentThread.getId());
         }
+    }
+    
+    private <T> boolean isNotInnerType(T item) {
+        return !INNER_CLAZZES_NAMES.contains(item.getClass().getName());
+    }
+    
+    private <T> boolean isNotInnerType(List<T> items) {
+        return isNotInnerType(items.get(0));
     }
 
     private <T> void markForSpace_CREATE(T item) {
@@ -723,7 +762,7 @@ public final class SpaceV2 {
             if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
             } else if (em != null) {
-                if (IS_REAL_SPACE) {
+                if (IS_REAL_SPACE && isNotInnerType(item)) {
                     // -
                     markForSpace_CREATE(item);
                 }
@@ -753,7 +792,7 @@ public final class SpaceV2 {
             if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
             } else if (em != null) {
-                if (IS_REAL_SPACE) {
+                if (IS_REAL_SPACE && isNotInnerType(item)) {
                     // -
                     markForSpace_UPDATE(item);
                 }
@@ -783,7 +822,7 @@ public final class SpaceV2 {
             if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
             } else if (em != null) {
-                if (IS_REAL_SPACE) {
+                if (IS_REAL_SPACE && isNotInnerType(item)) {
                     // -
                     markForSpace_DELETE(item);
                 }
@@ -828,7 +867,7 @@ public final class SpaceV2 {
                 if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
                 } else if (em != null) {
-                    if (IS_REAL_SPACE) {
+                    if (IS_REAL_SPACE && isNotInnerType(items)) {
                         //-
                         markForSpace_CREATE(items);
                     }
@@ -876,7 +915,7 @@ public final class SpaceV2 {
                 if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
                 } else if (em != null) {
-                    if (IS_REAL_SPACE) {
+                    if (IS_REAL_SPACE && isNotInnerType(items)) {
                         // -
                         markForSpace_UPDATE(items);
                     }
@@ -923,7 +962,7 @@ public final class SpaceV2 {
                 if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
                 } else if (em != null) {
-                    if (IS_REAL_SPACE) {
+                    if (IS_REAL_SPACE && isNotInnerType(items)) {
                         // -
                         markForSpace_DELETE(items);
                     }
@@ -1280,12 +1319,56 @@ public final class SpaceV2 {
 
     // =================================================================================================
     // special retrievers and tool methods for hyperspace
-    private List<DeleteEntry> retrievePendingDeletesForPeer(String peerId) {
-        return findAll_MATCH(DeleteEntry.class, "peer", peerId, 0);
+    
+    private ArrayList<Object> retrieveToBeUpdatedEntities(String peerId, ArrayList<UpdateEntry> eb) {
+        ArrayList<Object> res = new ArrayList<>();
+        eb.addAll(findAll_MATCH(UpdateEntry.class, "peer", peerId, 0));
+        HashMap<String,List<String>> buffer = new HashMap<>();
+        for (UpdateEntry updateEntry : eb) {
+            String clazzname = updateEntry.getClazzname();
+            String target = updateEntry.getTarget();
+            if(!buffer.containsKey(clazzname)) {
+                buffer.put(clazzname, new ArrayList<>());
+            }
+            buffer.get(clazzname).add(target);
+        }
+        for (Map.Entry<String, List<String>> entry : buffer.entrySet()) {
+            
+            try {
+                final Class<?> aClass = ReflectUtils.getClass(entry.getKey());
+                final List<String> ids = entry.getValue();
+                for (String id : ids) {
+                    res.add(get(aClass, id));
+                }
+            } catch (ClassNotFoundException ex) {
+                
+            }
+        }
+        return res;
+    }
+    
+    private List<DeleteMessage> issueToBeDeletedMessages(String peerId, ArrayList<DeleteEntry> eb) {
+        eb.addAll(findAll_MATCH(DeleteEntry.class, "peer", peerId, 0));
+        final long t = System.currentTimeMillis();
+        ArrayList<DeleteMessage> res = new ArrayList<>();
+        for (DeleteEntry de : eb) {
+            String clazzname = de.getClazzname();
+            String target = de.getTarget();
+            DeleteMessage m = new DeleteMessage();
+            m.setIssued(t);
+            m.setPeerOrigin(myId);
+            m.setTargetClazz(clazzname);
+            m.setTargetUid(target);
+            res.add(m);
+        }
+        return res;
     }
 
-    private List<UpdateEntry> retrievePendingUpdatesForPeer(String peerId) {
-        return findAll_MATCH(UpdateEntry.class, "peer", peerId, 0);
+    private EJSONObject ser(Object o) {
+        return null;
     }
-
+    
+    private <T> T deser(EJSONObject o, Class<T> clazz) {
+        return null;
+    }
 }

@@ -44,7 +44,7 @@ public final class MiniServer {
                     String strangeId = pipe.getRemoteSocketAddress().toString()+System.currentTimeMillis();
                     PeerHandler clientHandler = new PeerHandler(spaceForCallback, this, strangeId, pipe, LOG);
                     handlers.put(strangeId, clientHandler);
-                    LOG.i("MiniServer listened incoming socket ["+strangeId+"], starting its handler.");
+                    LOG.o("MiniServer listened incoming socket ["+strangeId+"], starting its handler.");
                     clientHandler.start();
                 } catch (IOException ex) {
                     LOG.e("I/O Issue in MiniServer.startInThread() loop listening on "+listeningPort, ex);
@@ -58,6 +58,7 @@ public final class MiniServer {
     public void markDeadPeerHandler(String strangeId) {
         // the thread has will be terminated after this lines
         handlers.remove(strangeId);
+        LOG.i("MiniServer.markDeadPeerHandler cleane dup "+strangeId+".");
     }
 
     public void stop() {
