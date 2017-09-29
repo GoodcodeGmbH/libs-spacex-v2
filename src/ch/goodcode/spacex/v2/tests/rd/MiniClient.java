@@ -3,10 +3,9 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package ch.goodcode.spacex.v2.engine;
+package ch.goodcode.spacex.v2.tests.rd;
 
 import ch.goodcode.libs.logging.LogBuffer;
-import ch.goodcode.spacex.v2.SpaceV2;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
@@ -17,7 +16,7 @@ import java.net.Socket;
  */
 public final class MiniClient {
 
-    private final SpaceV2 spaceForCallback;
+    private final SpaceV2_RD spaceForCallback;
     private final String remoteServerHost;
     private final int remoteServerPort;
     private Socket socketConnection;
@@ -26,7 +25,7 @@ public final class MiniClient {
     private final LogBuffer LOG;
     private final String remotePeerId;
 
-    public MiniClient(SpaceV2 spaceForCallback, String remoteServerHost, int remoteServerPort, String remotePeer, LogBuffer LOG) {
+    public MiniClient(SpaceV2_RD spaceForCallback, String remoteServerHost, int remoteServerPort, String remotePeer, LogBuffer LOG) {
         this.remoteServerHost = remoteServerHost;
         this.remoteServerPort = remoteServerPort;
         this.LOG = LOG;

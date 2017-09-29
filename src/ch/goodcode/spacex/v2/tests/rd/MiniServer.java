@@ -3,7 +3,7 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package ch.goodcode.spacex.v2.engine;
+package ch.goodcode.spacex.v2.tests.rd;
 
 import ch.goodcode.libs.logging.LogBuffer;
 import ch.goodcode.spacex.v2.SpaceV2;
@@ -18,14 +18,14 @@ import java.util.HashMap;
  */
 public final class MiniServer {
 
-    private final SpaceV2 spaceForCallback;
+    private final SpaceV2_RD spaceForCallback;
     private final int listeningPort;
     private ServerSocket socketConnection;
     private Thread theListener;
     private final LogBuffer LOG;
     private final HashMap<String,PeerHandler> handlers = new HashMap<>();
 
-    public MiniServer(SpaceV2 spaceForCallback, int listeningPort, LogBuffer LOG) {
+    public MiniServer(SpaceV2_RD spaceForCallback, int listeningPort, LogBuffer LOG) {
         this.spaceForCallback = spaceForCallback;
         this.listeningPort = listeningPort;
         this.LOG = LOG;

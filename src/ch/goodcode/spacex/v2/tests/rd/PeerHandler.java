@@ -3,7 +3,7 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package ch.goodcode.spacex.v2.engine;
+package ch.goodcode.spacex.v2.tests.rd;
 
 import ch.goodcode.libs.logging.LogBuffer;
 import ch.goodcode.libs.utils.dataspecs.EJSONArray;
@@ -21,7 +21,7 @@ public class PeerHandler extends Thread {
 
     private final MiniServer serverForCallback;
     private final String serverStrangeId;
-    private final SpaceV2 spaceForCallback;
+    private final SpaceV2_RD spaceForCallback;
     private final Socket socket;
     private final ObjectInputStream inputStream;
     private final String clientHost;
@@ -29,7 +29,7 @@ public class PeerHandler extends Thread {
     private String remotePeerId;
     private boolean go = true;
 
-    public PeerHandler(SpaceV2 spaceForCallback, MiniServer serverForCallback, String serverStrangeId, Socket socket, LogBuffer LOG) throws IOException {
+    public PeerHandler(SpaceV2_RD spaceForCallback, MiniServer serverForCallback, String serverStrangeId, Socket socket, LogBuffer LOG) throws IOException {
         this.spaceForCallback = spaceForCallback;
         this.socket = socket;
         inputStream = new ObjectInputStream(this.socket.getInputStream());

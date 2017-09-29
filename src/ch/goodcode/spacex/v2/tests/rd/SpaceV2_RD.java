@@ -3,21 +3,29 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package ch.goodcode.spacex.v2;
+package ch.goodcode.spacex.v2.tests.rd;
 
+import ch.goodcode.spacex.v2.*;
 import ch.goodcode.libs.logging.LogBuffer;
 import ch.goodcode.libs.io.EnhancedFilesystemIO;
+import ch.goodcode.libs.security.CryptoEngine;
+import ch.goodcode.libs.security.EnhancedCryptography;
+import ch.goodcode.libs.security.PermissionEngine;
 import ch.goodcode.libs.threading.ThreadManager;
 import ch.goodcode.libs.utils.GOOUtils;
+import ch.goodcode.libs.utils.ReflectUtils;
 import ch.goodcode.libs.utils.dataspecs.EJSONArray;
 import ch.goodcode.libs.utils.dataspecs.EJSONObject;
 import ch.goodcode.spacex.v2.compute.RegVar;
 import ch.goodcode.spacex.v2.compute.TokensPolicy;
 import java.io.File;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import javax.crypto.SecretKey;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
 import javax.persistence.Persistence;
@@ -28,10 +36,20 @@ import javax.persistence.TypedQuery;
  *
  * @author Paolo Domenighetti
  */
-public final class SpaceV2 {
+public final class SpaceV2_RD {
 
     // ======================================================================================================================================
+    private static final ArrayList<String> INNER_CLAZZES_NAMES = new ArrayList<>();
 
+    static {
+        INNER_CLAZZES_NAMES.add(UpdateEntry.class.getName());
+        INNER_CLAZZES_NAMES.add(DeleteEntry.class.getName());
+        INNER_CLAZZES_NAMES.add(AckEntry.class.getName());
+
+    }
+
+    private static final String DEFAULT_CRYPTO_KEY_ID = "DEFAULT";
+    private static final String DEFAULT_ISO_KEY = "DgVC7DaGMq9+fwnt+bjaZg==";
     private static final int EMF_SIZE_LIMIT = 1_000_000;
     private static final int EM_PURGE_LIMIT = 50;
     private static final long EM_PURGE_TIMEOUT = 20 * GOOUtils.TIME_MINUTES;
@@ -62,7 +80,14 @@ public final class SpaceV2 {
 
     // -
     private final EJSONObject spaceConf;
+    private MiniServer server;
+    private SpacePeer[] peers;
+    private final HashMap<String, MiniClient> clients = new HashMap<>();
+    private long mcounter = 0L;
 
+    // -
+    private final CryptoEngine spaceCryptos = new CryptoEngine();
+    private final PermissionEngine spacePermissions = new PermissionEngine();
 
     /**
      *
@@ -73,7 +98,7 @@ public final class SpaceV2 {
      * @param odbConfFilePath
      * @param spaceConfFilePath
      */
-    public SpaceV2(String uid, String spacePassword, String logPath, int logLevel, String odbConfFilePath, String spaceConfFilePath) {
+    public SpaceV2_RD(String uid, String spacePassword, String logPath, int logLevel, String odbConfFilePath, String spaceConfFilePath) {
         LOG = new LogBuffer("spacev2-" + uid, logPath, 1000, logLevel);
         IS_REAL_SPACE = spaceConfFilePath != null;
         odbConf = new EJSONObject(EnhancedFilesystemIO.fileRead(new File(odbConfFilePath)).toString());
@@ -97,7 +122,7 @@ public final class SpaceV2 {
      * @param user
      * @param pass
      */
-    public SpaceV2(String uid, String logPath, int logLevel, String hostStringFull, String user, String pass) {
+    public SpaceV2_RD(String uid, String logPath, int logLevel, String hostStringFull, String user, String pass) {
         LOG = new LogBuffer("spacev2-" + uid, logPath, 1000, logLevel);
         IS_REAL_SPACE = false;
         odbConf = null;
@@ -117,7 +142,7 @@ public final class SpaceV2 {
      * @param logLevel
      * @param odbFilePath
      */
-    public SpaceV2(String uid, String logPath, int logLevel, String odbFilePath) {
+    public SpaceV2_RD(String uid, String logPath, int logLevel, String odbFilePath) {
         LOG = new LogBuffer("spacev2-" + uid, logPath, 1, logLevel);
         IS_REAL_SPACE = false;
         odbConf = null;
@@ -135,7 +160,7 @@ public final class SpaceV2 {
      * @param logLevel
      * @param debugId
      */
-    public SpaceV2(String uid, String logPath, int logLevel, long debugId) {
+    public SpaceV2_RD(String uid, String logPath, int logLevel, long debugId) {
         this(uid, logPath, logLevel, "$objectdb/db/debug_" + debugId + ".odb");
     }
 
@@ -261,12 +286,56 @@ public final class SpaceV2 {
         if (IS_REAL_SPACE) {
             LOG.o("SV2 Space enabled, deploying and starting it on port " + spaceConf.getInteger("listeningPort") + "...");
             // prepare the main listening server for announces and objects:
-           
+            server = new MiniServer(this, spaceConf.getInteger("listeningPort"), LOG);
+            server.startInThread();
+            for (SpacePeer peer : peers) {
+                // for every registered peer prepare the com client to send messages (when they will be online):
+                MiniClient c = new MiniClient(this, peer.getHost(), peer.getPort(), peer.getUid(), LOG);
+                c.start();
+                clients.put(peer.getUid(), c);
+            }
+
+            // TODO init permissions and cryptos!!!!
+            // save the default key:
+            spaceCryptos.createAndStoreKey(DEFAULT_CRYPTO_KEY_ID, DEFAULT_ISO_KEY);
+
+            //..
+            //..
+            // space updater
+            for (SpacePeer peer : peers) {
+                tmanager.fetchDaemon(() -> {
+                    if (peer.isConnected()) {
+                        ArrayList<UpdateEntry> tbdel = new ArrayList<>();
+                        ArrayList<IHyperspaceEntity> retrieveToBeUpdatedEntities = retrieveToBeUpdatedEntities(peer.getUid(), tbdel);
+                        boolean ok = sendObjectsToPeer(peer.getUid(), retrieveToBeUpdatedEntities);
+                        if (ok) {
+
+                        }
+                    }
+
+                },
+                        GOOUtils.TIME_SECONDS,
+                        20 * GOOUtils.TIME_SECONDS);
+            }
+
+            // space deleter
+            for (SpacePeer peer : peers) {
+                tmanager.fetchDaemon(() -> {
+                    if (peer.isConnected()) {
+                        ArrayList<DeleteEntry> tbdel = new ArrayList<>();
+                        List<DeleteMessage> sueToBeDeletedMessages = issueToBeDeletedMessages(peer.getUid(), tbdel);
+                    }
+
+                },
+                        GOOUtils.TIME_SECONDS,
+                        20 * GOOUtils.TIME_SECONDS);
+            }
+
             LOG.o("SV2 Space is ready.");
         }
 
         if (IS_REAL_SPACE) {
-            LOG.o("SV2 full instance '" + myId + " with its Space has properly started. Have a nice day.");
+            LOG.o("SV2 full instance '" + myId + " with its Space (for " + peers.length + " registered peers) has properly started. Have a nice day.");
         } else {
             LOG.o("SV2 instance '" + myId + " has properly started. Have a nice day.");
         }
@@ -327,6 +396,216 @@ public final class SpaceV2 {
             ILevel3Updatable<T> c = ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name));
             c.delete(objects);
         }
+    }
+
+    private String mid(String forgeMethodName, long time) {
+        mcounter++;
+        return GOOUtils.toHashcode_SHA256(forgeMethodName + time + mcounter);
+    }
+
+    public EncryptedMessageObject issueMessage_ANNOUNCE_request(String otherPeerId) {
+        long t = System.currentTimeMillis();
+        EncryptedMessageObject o = new EncryptedMessageObject(
+                mid("issueMessage_ANNOUNCE", t),
+                EncryptedMessageObject.KIND_ACCESS,
+                encrypt(null, otherPeerId), // the announce is default encrypted
+                myId,
+                t
+        );
+        return o;
+    }
+
+    public EncryptedMessageObject issueMessage_ANNOUNCE_answer(String newGenKey) {
+        long t = System.currentTimeMillis();
+        EncryptedMessageObject o = new EncryptedMessageObject(
+                mid("issueMessage_ANNOUNCE_answer", t),
+                EncryptedMessageObject.KIND_ACCESS,
+                encrypt(null, "KEYED:" + newGenKey), // the announce is default encrypted
+                myId,
+                t
+        );
+        return o;
+    }
+
+    public EncryptedMessageObject issueMessage_LOGIN_request(String otherPeerId) {
+        long t = System.currentTimeMillis();
+        EncryptedMessageObject o = new EncryptedMessageObject(
+                mid("issueMessage_LOGIN", t),
+                EncryptedMessageObject.KIND_ACCESS,
+                encrypt(otherPeerId, myId + ":" + myPassword),
+                myId,
+                t
+        );
+        return o;
+    }
+
+    public EncryptedMessageObject issueMessage_LOGIN_answer(String otherPeerId, boolean ans) {
+        long t = System.currentTimeMillis();
+        if (ans) {
+            EncryptedMessageObject o = new EncryptedMessageObject(
+                    mid("issueMessage_ANNOUNCE_answer", t),
+                    EncryptedMessageObject.KIND_ACCESS,
+                    encrypt(otherPeerId, "OK"),
+                    myId,
+                    t
+            );
+            return o;
+        } else {
+            EncryptedMessageObject o = new EncryptedMessageObject(
+                    mid("issueMessage_ANNOUNCE_answer", t),
+                    EncryptedMessageObject.KIND_ACCESS,
+                    encrypt(otherPeerId, "ERROR"),
+                    myId,
+                    t
+            );
+            return o;
+        }
+    }
+
+    public boolean listen_login(String peerId, String loginStringPayload) {
+        String[] split = loginStringPayload.split(":");
+        String u = split[0];
+        String p = split[1];
+        if (u.equals(peerId)) {
+            return spacePermissions.login(u, p);
+        } else {
+            return false;
+        }
+    }
+
+    public void markConnectedForOUT(String peerId) {
+        for (SpacePeer peer : peers) {
+            if (peer.getUid().equals(peerId)) {
+                peer.setConnected(true);
+                break;
+            }
+        }
+    }
+
+    public void markDisconnectedForOUT(String peerId) {
+        for (SpacePeer peer : peers) {
+            if (peer.getUid().equals(peerId)) {
+                peer.setConnected(false);
+                break;
+            }
+        }
+    }
+
+    public void listen_meta(String peerId, EJSONObject meta) {
+        // they are either delete messages or ack messages
+
+    }
+
+    public void listen_error(String peerId, EJSONObject error) {
+
+    }
+
+    public void listen_parseAndWorkoutListenedObjects(String peerId, EJSONArray payload) {
+        // must be fast!
+        HashMap<String, ArrayList<EJSONObject>> map = new HashMap<>();
+        try {
+            for (int i = 0; i < payload.size(); i++) {
+                EJSONObject object = payload.getObject(i);
+                String cln = object.getString("clazz");
+                if(!map.containsKey(cln)) {
+                    map.put(cln, new ArrayList<>());
+                }
+                map.get(cln).add(object);
+            }
+            
+            for (Map.Entry<String, ArrayList<EJSONObject>> entry : map.entrySet()) {
+                Class<?> aClass = ReflectUtils.getClass(entry.getKey());
+                ArrayList<Object> res = new ArrayList<>();
+                ArrayList<EJSONObject> value = entry.getValue();
+                for (EJSONObject eJSONObject : value) {
+                    res.add(deser(eJSONObject, aClass));
+                }
+                update(res); // <<------------------------------------------- update/create
+            }
+            
+        } catch (Exception ex) {
+
+        }
+
+    }
+
+    public void listen_parseAndWorkoutListenedObject(String peerId, EJSONObject payload) {
+        try {
+            // must be fast!
+            Class<?> aClass = ReflectUtils.getClass(payload.getString("clazz"));
+            Object deser = deser(payload, aClass);
+            update(deser); // <<------------------------------------------- update/create
+        } catch (Exception ex) {
+            
+        }
+    }
+
+    public String issueAndRegisterSessionKeyForPeer(String peerId) {
+        // IN keys
+        SecretKey k;
+        try {
+            k = EnhancedCryptography.generateSecretKey();
+            String saveSecretKey = EnhancedCryptography.saveSecretKey(k);
+            spaceCryptos.createAndStoreKey(peerId + ":IN", saveSecretKey);
+            return saveSecretKey;
+        } catch (NoSuchAlgorithmException | NoSuchProviderException ex) {
+            return null; // always works, no problem
+        }
+
+    }
+
+    public boolean saveAndRegisterSessionKeyForPeer(String peerId, String k) {
+        // OUT keys
+        for (int i = 0; i < peers.length; i++) {
+            SpacePeer peer = peers[i];
+            if (peer.getUid().equals(peerId)) {
+                spaceCryptos.createAndStoreKey(peerId + ":OUT", k);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void sendMessageToPeer(String peerId, EncryptedMessageObject m) {
+
+    }
+
+    public boolean sendDeleteMessageToPeer(String peerId, List<DeleteMessage> msgs) {
+        return false;
+    }
+
+    public boolean sendObjectsToPeer(String peerId, List<IHyperspaceEntity> objects) {
+        long t = System.currentTimeMillis();
+        EJSONArray a = new EJSONArray();
+        for (IHyperspaceEntity object : objects) {
+            a.addObject(ser(object));
+        }
+        EncryptedMessageObject o = new EncryptedMessageObject(
+                mid("sendObjectsToPeer", t),
+                EncryptedMessageObject.KIND_MOBJECT,
+                encrypt(peerId, a.toJSONString()),
+                myId,
+                t
+        );
+        return clients.get(peerId).sendMessage(o);
+    }
+
+    public String encrypt(String keyID, String s) {
+        if (keyID == null) {
+            keyID = DEFAULT_CRYPTO_KEY_ID;
+        } else if (!keyID.equals(DEFAULT_CRYPTO_KEY_ID)) {
+            keyID = keyID + ":OUT"; // this is the session key received from the other peer
+        }
+        return spaceCryptos.decryptInline(keyID, s);
+    }
+
+    public String decrypt(String keyID, String s) {
+        if (keyID == null) {
+            keyID = DEFAULT_CRYPTO_KEY_ID;
+        } else if (!keyID.equals(DEFAULT_CRYPTO_KEY_ID)) {
+            keyID = keyID + ":IN"; // this is my generated session key for the peer
+        }
+        return spaceCryptos.encryptInline(keyID, s);
     }
 
     /**
@@ -393,6 +672,77 @@ public final class SpaceV2 {
         }
     }
 
+    private <T> boolean isNotInnerType(T item) {
+        return !INNER_CLAZZES_NAMES.contains(item.getClass().getName());
+    }
+
+    private <T> boolean isNotInnerType(List<T> items) {
+        return isNotInnerType(items.get(0));
+    }
+
+    private <T> void markForSpace_CREATE(T item) {
+        markForSpace_UPDATE(item);
+    }
+
+    private <T> void markForSpace_UPDATE(T item) {
+        if (item instanceof IHyperspaceEntity) {
+            for (SpacePeer peer : peers) {
+                UpdateEntry e = new UpdateEntry();
+                e.setClazzname(item.getClass().getSimpleName());
+                e.setLastUpdated(System.currentTimeMillis());
+                e.setPeer(peer.getUid());
+                e.setTarget(((IHyperspaceEntity) item).uid());
+                create(e);
+            }
+        }
+    }
+
+    private <T> void markForSpace_DELETE(T item) {
+        if (item instanceof IHyperspaceEntity) {
+            for (SpacePeer peer : peers) {
+                DeleteEntry e = new DeleteEntry();
+                e.setClazzname(item.getClass().getSimpleName());
+                e.setLastDeleted(System.currentTimeMillis());
+                e.setPeer(peer.getUid());
+                e.setTarget(((IHyperspaceEntity) item).uid());
+                create(e);
+            }
+        }
+    }
+
+    private <T> void markForSpace_CREATE(List<T> items) {
+        markForSpace_UPDATE(items);
+    }
+
+    private <T> void markForSpace_UPDATE(List<T> items) {
+        if (items.get(0) instanceof IHyperspaceEntity) {
+            for (T item : items) {
+                for (SpacePeer peer : peers) {
+                    UpdateEntry e = new UpdateEntry();
+                    e.setClazzname(item.getClass().getSimpleName());
+                    e.setLastUpdated(System.currentTimeMillis());
+                    e.setPeer(peer.getUid());
+                    e.setTarget(((IHyperspaceEntity) item).uid());
+                    create(e);
+                }
+            }
+        }
+    }
+
+    private <T> void markForSpace_DELETE(List<T> items) {
+        if (items.get(0) instanceof IHyperspaceEntity) {
+            for (T item : items) {
+                for (SpacePeer peer : peers) {
+                    DeleteEntry e = new DeleteEntry();
+                    e.setClazzname(item.getClass().getSimpleName());
+                    e.setLastDeleted(System.currentTimeMillis());
+                    e.setPeer(peer.getUid());
+                    e.setTarget(((IHyperspaceEntity) item).uid());
+                    create(e);
+                }
+            }
+        }
+    }
 
     // ========================================================================
     // Tokens utility methods
@@ -437,6 +787,10 @@ public final class SpaceV2 {
             if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
             } else if (em != null) {
+                if (IS_REAL_SPACE && isNotInnerType(item)) {
+                    // -
+                    markForSpace_CREATE(item);
+                }
                 createForCacheListeners(item);
             }
         }
@@ -463,6 +817,10 @@ public final class SpaceV2 {
             if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
             } else if (em != null) {
+                if (IS_REAL_SPACE && isNotInnerType(item)) {
+                    // -
+                    markForSpace_UPDATE(item);
+                }
                 updateForCacheListeners(item);
             }
         }
@@ -489,6 +847,10 @@ public final class SpaceV2 {
             if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
             } else if (em != null) {
+                if (IS_REAL_SPACE && isNotInnerType(item)) {
+                    // -
+                    markForSpace_DELETE(item);
+                }
                 deleteForCacheListeners(item);
             }
         }
@@ -530,6 +892,10 @@ public final class SpaceV2 {
                 if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
                 } else if (em != null) {
+                    if (IS_REAL_SPACE && isNotInnerType(items)) {
+                        //-
+                        markForSpace_CREATE(items);
+                    }
                     createForCacheListeners(items);
                 }
             }
@@ -574,6 +940,10 @@ public final class SpaceV2 {
                 if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
                 } else if (em != null) {
+                    if (IS_REAL_SPACE && isNotInnerType(items)) {
+                        // -
+                        markForSpace_UPDATE(items);
+                    }
                     updateForCacheListeners(items);
                 }
             }
@@ -617,6 +987,10 @@ public final class SpaceV2 {
                 if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
                 } else if (em != null) {
+                    if (IS_REAL_SPACE && isNotInnerType(items)) {
+                        // -
+                        markForSpace_DELETE(items);
+                    }
                     deleteForCacheListeners(items);
                 }
             }
@@ -968,4 +1342,63 @@ public final class SpaceV2 {
         }
     }
 
+    // =================================================================================================
+    // =================================================================================================
+    // special retrievers and tool methods for hyperspace
+    
+    private ArrayList<IHyperspaceEntity> retrieveToBeUpdatedEntities(String peerId, ArrayList<UpdateEntry> eb) {
+        ArrayList<IHyperspaceEntity> res = new ArrayList<>();
+        eb.addAll(findAll_MATCH(UpdateEntry.class, "peer", peerId, 0));
+        HashMap<String, List<String>> buffer = new HashMap<>();
+        for (UpdateEntry updateEntry : eb) {
+            String clazzname = updateEntry.getClazzname();
+            String target = updateEntry.getTarget();
+            if (!buffer.containsKey(clazzname)) {
+                buffer.put(clazzname, new ArrayList<>());
+            }
+            buffer.get(clazzname).add(target);
+        }
+        for (Map.Entry<String, List<String>> entry : buffer.entrySet()) {
+
+            try {
+                final Class<?> aClass = ReflectUtils.getClass(entry.getKey());
+                final List<String> ids = entry.getValue();
+                for (String id : ids) {
+                    res.add((IHyperspaceEntity)get(aClass, id));
+                }
+            } catch (ClassNotFoundException ex) {
+
+            }
+        }
+        return res;
+    }
+
+    private List<DeleteMessage> issueToBeDeletedMessages(String peerId, ArrayList<DeleteEntry> eb) {
+        eb.addAll(findAll_MATCH(DeleteEntry.class, "peer", peerId, 0));
+        final long t = System.currentTimeMillis();
+        ArrayList<DeleteMessage> res = new ArrayList<>();
+        for (DeleteEntry de : eb) {
+            String clazzname = de.getClazzname();
+            String target = de.getTarget();
+            DeleteMessage m = new DeleteMessage();
+            m.setIssued(t);
+            m.setPeerOrigin(myId);
+            m.setTargetClazz(clazzname);
+            m.setTargetUid(target);
+            res.add(m);
+        }
+        return res;
+    }
+
+    private EJSONObject ser(IHyperspaceEntity o) {
+        EJSONObject res = new EJSONObject();
+        res.putString("clazz", o.getClass().getName());
+        res.putString("uid", o.uid());
+        // ...
+        return null;
+    }
+
+    private <T> T deser(EJSONObject o, Class<T> clazz) {
+        return null;
+    }
 }
