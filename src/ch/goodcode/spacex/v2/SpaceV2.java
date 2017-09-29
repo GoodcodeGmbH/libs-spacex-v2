@@ -32,6 +32,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.crypto.SecretKey;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
@@ -47,14 +49,14 @@ public final class SpaceV2 {
 
     // ======================================================================================================================================
     private static final ArrayList<String> INNER_CLAZZES_NAMES = new ArrayList<>();
-    
+
     static {
         INNER_CLAZZES_NAMES.add(UpdateEntry.class.getName());
         INNER_CLAZZES_NAMES.add(DeleteEntry.class.getName());
         INNER_CLAZZES_NAMES.add(AckEntry.class.getName());
-        
+
     }
-    
+
     private static final String DEFAULT_CRYPTO_KEY_ID = "DEFAULT";
     private static final String DEFAULT_ISO_KEY = "DgVC7DaGMq9+fwnt+bjaZg==";
     private static final int EMF_SIZE_LIMIT = 1_000_000;
@@ -313,10 +315,10 @@ public final class SpaceV2 {
                 tmanager.fetchDaemon(() -> {
                     if (peer.isConnected()) {
                         ArrayList<UpdateEntry> tbdel = new ArrayList<>();
-                        ArrayList<Object> retrieveToBeUpdatedEntities = retrieveToBeUpdatedEntities(peer.getUid(), tbdel);
+                        ArrayList<IHyperspaceEntity> retrieveToBeUpdatedEntities = retrieveToBeUpdatedEntities(peer.getUid(), tbdel);
                         boolean ok = sendObjectsToPeer(peer.getUid(), retrieveToBeUpdatedEntities);
-                        if(ok) {
-                            
+                        if (ok) {
+
                         }
                     }
 
@@ -509,10 +511,42 @@ public final class SpaceV2 {
 
     public void listen_parseAndWorkoutListenedObjects(String peerId, EJSONArray payload) {
         // must be fast!
+        HashMap<String, ArrayList<EJSONObject>> map = new HashMap<>();
+        try {
+            for (int i = 0; i < payload.size(); i++) {
+                EJSONObject object = payload.getObject(i);
+                String cln = object.getString("clazz");
+                if(!map.containsKey(cln)) {
+                    map.put(cln, new ArrayList<>());
+                }
+                map.get(cln).add(object);
+            }
+            
+            for (Map.Entry<String, ArrayList<EJSONObject>> entry : map.entrySet()) {
+                Class<?> aClass = ReflectUtils.getClass(entry.getKey());
+                ArrayList<Object> res = new ArrayList<>();
+                ArrayList<EJSONObject> value = entry.getValue();
+                for (EJSONObject eJSONObject : value) {
+                    res.add(deser(eJSONObject, aClass));
+                }
+                update(res); // <<------------------------------------------- update/create
+            }
+            
+        } catch (Exception ex) {
+
+        }
+
     }
-    
+
     public void listen_parseAndWorkoutListenedObject(String peerId, EJSONObject payload) {
-        // must be fast!
+        try {
+            // must be fast!
+            Class<?> aClass = ReflectUtils.getClass(payload.getString("clazz"));
+            Object deser = deser(payload, aClass);
+            update(deser); // <<------------------------------------------- update/create
+        } catch (Exception ex) {
+            
+        }
     }
 
     public String issueAndRegisterSessionKeyForPeer(String peerId) {
@@ -540,19 +574,19 @@ public final class SpaceV2 {
         }
         return false;
     }
-    
+
     public void sendMessageToPeer(String peerId, EncryptedMessageObject m) {
-        
+
     }
 
     public boolean sendDeleteMessageToPeer(String peerId, List<DeleteMessage> msgs) {
         return false;
     }
 
-    public boolean sendObjectsToPeer(String peerId, List<Object> objects) {
+    public boolean sendObjectsToPeer(String peerId, List<IHyperspaceEntity> objects) {
         long t = System.currentTimeMillis();
         EJSONArray a = new EJSONArray();
-        for (Object object : objects) {
+        for (IHyperspaceEntity object : objects) {
             a.addObject(ser(object));
         }
         EncryptedMessageObject o = new EncryptedMessageObject(
@@ -646,11 +680,11 @@ public final class SpaceV2 {
             return ems.get(currentThread.getId());
         }
     }
-    
+
     private <T> boolean isNotInnerType(T item) {
         return !INNER_CLAZZES_NAMES.contains(item.getClass().getName());
     }
-    
+
     private <T> boolean isNotInnerType(List<T> items) {
         return isNotInnerType(items.get(0));
     }
@@ -1318,35 +1352,36 @@ public final class SpaceV2 {
     }
 
     // =================================================================================================
+    // =================================================================================================
     // special retrievers and tool methods for hyperspace
     
-    private ArrayList<Object> retrieveToBeUpdatedEntities(String peerId, ArrayList<UpdateEntry> eb) {
-        ArrayList<Object> res = new ArrayList<>();
+    private ArrayList<IHyperspaceEntity> retrieveToBeUpdatedEntities(String peerId, ArrayList<UpdateEntry> eb) {
+        ArrayList<IHyperspaceEntity> res = new ArrayList<>();
         eb.addAll(findAll_MATCH(UpdateEntry.class, "peer", peerId, 0));
-        HashMap<String,List<String>> buffer = new HashMap<>();
+        HashMap<String, List<String>> buffer = new HashMap<>();
         for (UpdateEntry updateEntry : eb) {
             String clazzname = updateEntry.getClazzname();
             String target = updateEntry.getTarget();
-            if(!buffer.containsKey(clazzname)) {
+            if (!buffer.containsKey(clazzname)) {
                 buffer.put(clazzname, new ArrayList<>());
             }
             buffer.get(clazzname).add(target);
         }
         for (Map.Entry<String, List<String>> entry : buffer.entrySet()) {
-            
+
             try {
                 final Class<?> aClass = ReflectUtils.getClass(entry.getKey());
                 final List<String> ids = entry.getValue();
                 for (String id : ids) {
-                    res.add(get(aClass, id));
+                    res.add((IHyperspaceEntity)get(aClass, id));
                 }
             } catch (ClassNotFoundException ex) {
-                
+
             }
         }
         return res;
     }
-    
+
     private List<DeleteMessage> issueToBeDeletedMessages(String peerId, ArrayList<DeleteEntry> eb) {
         eb.addAll(findAll_MATCH(DeleteEntry.class, "peer", peerId, 0));
         final long t = System.currentTimeMillis();
@@ -1364,10 +1399,14 @@ public final class SpaceV2 {
         return res;
     }
 
-    private EJSONObject ser(Object o) {
+    private EJSONObject ser(IHyperspaceEntity o) {
+        EJSONObject res = new EJSONObject();
+        res.putString("clazz", o.getClass().getName());
+        res.putString("uid", o.uid());
+        // ...
         return null;
     }
-    
+
     private <T> T deser(EJSONObject o, Class<T> clazz) {
         return null;
     }
