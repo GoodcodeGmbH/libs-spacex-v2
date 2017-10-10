@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
 import javax.persistence.Persistence;
@@ -40,7 +41,6 @@ public final class SpaceV2 {
     //-
     private final boolean IS_REAL_SPACE;
     private final String myId;
-    private final String myPassword;
 
     public String geSpaceId() {
         return myId;
@@ -48,41 +48,37 @@ public final class SpaceV2 {
 
     //-
     private LogBuffer LOG;
-    private EntityManagerFactory mainEMF;
-    private final HashMap<String, EntityManagerFactory> emfsMAP = new HashMap<>();
-    private final HashMap<String, TokensPolicy> tokensPolicies = new HashMap<>();
-    private final HashMap<Long, EntityManager> ems = new HashMap<>();
-    private final HashMap<Long, Long> emsT = new HashMap<>();
+
+    private final ConcurrentHashMap<String, EntityManagerFactory> emfsMAP = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, TokensPolicy> tokensPolicies = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, EntityManager> ems = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Long> emsT = new ConcurrentHashMap<>();
     private long emsC = 0L;
-    private final EJSONObject odbConf;
+
     private final String optHostFull;
     private String optUser, optPass;
     private final ThreadManager tmanager = new ThreadManager(100, 100);
+    private Process odbLocalProcess;
 
     // -
+    private final EJSONObject odbConf;
     private final EJSONObject spaceConf;
 
     /**
      *
      * @param uid
-     * @param spacePassword may be null if there is no REAL SPACE
      * @param logPath
      * @param logLevel
      * @param odbConfFilePath
      * @param spaceConfFilePath
      */
-    public SpaceV2(String uid, String spacePassword, String logPath, int logLevel, String odbConfFilePath, String spaceConfFilePath) {
-        LOG = new LogBuffer("spacev2-" + uid, logPath, 1000, logLevel);
-        IS_REAL_SPACE = spaceConfFilePath != null;
+    public SpaceV2(String uid, String logPath, int logLevel, String odbConfFilePath, String spaceConfFilePath) {
+        LOG = new LogBuffer("spacev2-" + uid, logPath, 1, logLevel);
         odbConf = new EJSONObject(EnhancedFilesystemIO.fileRead(new File(odbConfFilePath)).toString());
-        if (IS_REAL_SPACE) {
-            spaceConf = new EJSONObject(EnhancedFilesystemIO.fileRead(new File(spaceConfFilePath)).toString());
-        } else {
-            spaceConf = null;
-        }
+        spaceConf = new EJSONObject(EnhancedFilesystemIO.fileRead(new File(spaceConfFilePath)).toString());
+        IS_REAL_SPACE = spaceConf != null;
         optHostFull = null;
         this.myId = uid;
-        this.myPassword = spacePassword;
     }
 
     /**
@@ -96,7 +92,7 @@ public final class SpaceV2 {
      * @param pass
      */
     public SpaceV2(String uid, String logPath, int logLevel, String hostStringFull, String user, String pass) {
-        LOG = new LogBuffer("spacev2-" + uid, logPath, 1000, logLevel);
+        LOG = new LogBuffer("spacev2-" + uid, logPath, 1, logLevel);
         IS_REAL_SPACE = false;
         odbConf = null;
         spaceConf = null;
@@ -104,7 +100,6 @@ public final class SpaceV2 {
         optUser = user;
         optPass = pass;
         this.myId = uid;
-        this.myPassword = "1234";
     }
 
     /**
@@ -122,7 +117,6 @@ public final class SpaceV2 {
         spaceConf = null;
         optHostFull = odbFilePath;
         this.myId = uid;
-        this.myPassword = "1234";
     }
 
     /**
@@ -146,127 +140,38 @@ public final class SpaceV2 {
 
         // put in place MEM TIER ---------------------------------------------------
         if (optUser == null) {
-
-            mainEMF = Persistence.createEntityManagerFactory(
+            
+            // DEBUG setup
+            EntityManagerFactory mainEMF = Persistence.createEntityManagerFactory(
                     optHostFull);
-
+            emfsMAP.put("MAIN", mainEMF);
             LOG.o("Mod0 (debug) detected: main ef only with path " + optHostFull);
 
         } else if (odbConf == null) {
-
+            
+            // DEBUG setup
             Map<String, String> properties = new HashMap<>();
             properties.put("javax.persistence.jdbc.user", optUser);
             properties.put("javax.persistence.jdbc.password", optPass);
-            mainEMF = Persistence.createEntityManagerFactory(
+            EntityManagerFactory mainEMF = Persistence.createEntityManagerFactory(
                     optHostFull,
                     properties);
-
+            emfsMAP.put("MAIN", mainEMF);
             LOG.o("Mod1 ('configless', debug) detected: main ef only with path " + optHostFull + " and user access");
 
         } else {
 
-            LOG.o("................... 100%: odb Config file detected and properly parsed.");
+            LOG.o("................... 100%: odb Config file(s) detected and properly parsed.");
+            System.setProperty("objectdb.conf", "/my/objectdb.conf"); // TODO
+            // TODO main emf must exist always, if not used it is a service local odb embedded runtime
 
-            if (!IS_REAL_SPACE) {
+            if (IS_REAL_SPACE) {
 
-                EJSONObject mainUnitJson = odbConf.getObject("mainUnit");
-                if (mainUnitJson.getBoolean("isFile")) {
-                    mainEMF = Persistence.createEntityManagerFactory(
-                            mainUnitJson.getString("memPath"));
-                } else {
-                    Map<String, String> properties = new HashMap<>();
-                    properties.put("javax.persistence.jdbc.user", mainUnitJson.getString("odbUser"));
-                    properties.put("javax.persistence.jdbc.password", mainUnitJson.getString("odbPass"));
-                    mainEMF = Persistence.createEntityManagerFactory(
-                            "objectdb://" + mainUnitJson.getString("odbHost") + ":" + mainUnitJson.getInteger("odbPort") + "/" + mainUnitJson.getString("memUid") + ".odb",
-                            properties);
-
-                    EJSONObject backup = mainUnitJson.getObject("backup");
-                    if (backup != null) {
-                        String target = backup.getString("target");
-                        tmanager.fetchDaemon(() -> {
-                            Query backupQuery = mainEMF.createEntityManager().createQuery("objectdb backup");
-                            backupQuery.setParameter("target", new java.io.File(target));
-                            backupQuery.getSingleResult();
-                        }, 5000L, backup.getInteger("schedule") * GOOUtils.TIME_HOURS);
-                    }
-                }
-
-                EJSONArray otherUnitsJsonArray = odbConf.getArray("otherUnits");
-                for (int i = 0; i < otherUnitsJsonArray.size(); i++) {
-                    EJSONObject unitJson = otherUnitsJsonArray.getObject(i);
-                    if (unitJson.getBoolean("isFile")) {
-                        if (unitJson.getBoolean("isTokenized")) {
-
-                            String dt = unitJson.getString("dataType");
-                            int tokens = (unitJson.getInteger("dataSize") / EMF_SIZE_LIMIT) + 1;
-                            tokensPolicies.put(dt, new TokensPolicy(tokens, unitJson.getString("tokensTypeRule"), unitJson.getString("tokensField")));
-
-                            for (int j = 0; j < tokens; j++) {
-                                EntityManagerFactory anEmf = Persistence.createEntityManagerFactory(
-                                        unitJson.getString("memSubfolder") + "/" + dt.toLowerCase() + "_" + j + ".odb");
-                                emfsMAP.put(dt + "_" + j, anEmf);
-                                EJSONObject backup = unitJson.getObject("backup");
-                                if (backup != null) {
-                                    String target = backup.getString("target");
-                                    tmanager.fetchDaemon(() -> {
-                                        Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
-                                        backupQuery.setParameter("target", new java.io.File(target));
-                                        backupQuery.getSingleResult();
-                                    }, 5000L, backup.getInteger("schedule") * GOOUtils.TIME_HOURS);
-
-                                }
-                            }
-
-                        } else {
-                            EntityManagerFactory anEmf = Persistence.createEntityManagerFactory(
-                                    unitJson.getString("memPath"));
-                            EJSONArray types = unitJson.getArray("dataTypes");
-                            for (int j = 0; j < types.size(); j++) {
-                                emfsMAP.put(types.getString(j), anEmf);
-                            }
-
-                            EJSONObject backup = unitJson.getObject("backup");
-                            if (backup != null) {
-                                String target = backup.getString("target");
-                                tmanager.fetchDaemon(() -> {
-                                    Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
-                                    backupQuery.setParameter("target", new java.io.File(target));
-                                    backupQuery.getSingleResult();
-                                }, 5000L, backup.getInteger("schedule") * GOOUtils.TIME_HOURS);
-
-                            }
-
-                        }
-
-                    } else {
-                        Map<String, String> properties = new HashMap<>();
-                        properties.put("javax.persistence.jdbc.user", unitJson.getString("odbUser"));
-                        properties.put("javax.persistence.jdbc.password", unitJson.getString("odbPass"));
-                        EntityManagerFactory anEmf = Persistence.createEntityManagerFactory(
-                                "objectdb://" + unitJson.getString("odbHost") + ":" + unitJson.getInteger("odbPort") + "/" + unitJson.getString("memUid") + ".odb",
-                                properties);
-                        EJSONArray types = unitJson.getArray("dataTypes");
-                        for (int j = 0; j < types.size(); j++) {
-                            emfsMAP.put(types.getString(j), anEmf);
-                        }
-                    }
-                }
-
-                LOG.o("ModX detected: main emf only with path " + optHostFull + ", emfs built: " + emfsMAP.size());
             } else {
-                LOG.o("SV2 Space enabled, deploying and starting it on port " + spaceConf.getInteger("listeningPort") + "...");
-                // prepare the main listening server for announces and objects:
 
-                LOG.o("SV2 Space is ready.");
             }
         }
 
-        if (IS_REAL_SPACE) {
-            LOG.o("SV2 full instance '" + myId + " with its Space has properly started. Have a nice day.");
-        } else {
-            LOG.o("SV2 instance '" + myId + " has properly started. Have a nice day.");
-        }
     }
 
     private final HashMap<String, ILevel3Updatable<?>> LEVEL3CACHELISTENERS = new HashMap<>();
@@ -344,20 +249,19 @@ public final class SpaceV2 {
         emfsMAP.clear();
 
         //-
-        mainEMF.close();
         LOG.o("Stopped SV2 '" + myId + "', goodbye.");
         LOG.s();
     }
-    
+
     private synchronized <T> EntityManager em(Class<T> clazz, boolean write) {
-        if(!IS_REAL_SPACE) {
-            return emLocal(Thread.currentThread(), clazz);
+        if (!IS_REAL_SPACE) {
+            return emLocalOnly(Thread.currentThread(), clazz);
         } else {
             return emRealSpace(Thread.currentThread(), clazz, write);
         }
     }
 
-    private <T> EntityManager emLocal(Thread currentThread, Class<T> clazz) {
+    private <T> EntityManager emLocalOnly(Thread currentThread, Class<T> clazz) {
         if (tokensPolicies.containsKey(clazz.getSimpleName())) {
             return null; // <<-- in token processing...
         } else {
@@ -386,7 +290,7 @@ public final class SpaceV2 {
                 if (emfsMAP.containsKey(clazz.getSimpleName())) {
                     ems.put(currentThread.getId(), emfsMAP.get(clazz.getSimpleName()).createEntityManager());
                 } else {
-                    ems.put(currentThread.getId(), mainEMF.createEntityManager());
+                    ems.put(currentThread.getId(), (emfsMAP.get("MAIN")).createEntityManager());
                 }
                 emsC++;
             }
@@ -394,7 +298,7 @@ public final class SpaceV2 {
             return ems.get(currentThread.getId());
         }
     }
-    
+
     private <T> EntityManager emRealSpace(Thread currentThread, Class<T> clazz, boolean write) {
         return null;
     }
@@ -468,7 +372,7 @@ public final class SpaceV2 {
         } finally {
             if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
-                LOG.i("Faulty transaction in create() has been rolled back.");
+                LOG.i("Faulty transaction in delete() has been rolled back.");
             } else if (em != null) {
                 updateForCacheListeners(item);
             }
@@ -495,7 +399,7 @@ public final class SpaceV2 {
         } finally {
             if (em != null && em.getTransaction().isActive()) {
                 em.getTransaction().rollback();
-                LOG.i("Faulty transaction in create() has been rolled back.");
+                LOG.i("Faulty transaction in delete() has been rolled back.");
             } else if (em != null) {
                 deleteForCacheListeners(item);
             }
@@ -537,7 +441,7 @@ public final class SpaceV2 {
             } finally {
                 if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
-                    LOG.i("Faulty transaction in create() has been rolled back.");
+                    LOG.i("Faulty transaction in create(List<>) has been rolled back.");
                 } else if (em != null) {
                     createForCacheListeners(items);
                 }
@@ -582,7 +486,7 @@ public final class SpaceV2 {
             } finally {
                 if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
-                    LOG.i("Faulty transaction in create() has been rolled back.");
+                    LOG.i("Faulty transaction in update(List<>) has been rolled back.");
                 } else if (em != null) {
                     updateForCacheListeners(items);
                 }
@@ -626,7 +530,7 @@ public final class SpaceV2 {
             } finally {
                 if (em != null && em.getTransaction().isActive()) {
                     em.getTransaction().rollback();
-                    LOG.i("Faulty transaction in create() has been rolled back.");
+                    LOG.i("Faulty transaction in delete(List<>) has been rolled back.");
                 } else if (em != null) {
                     deleteForCacheListeners(items);
                 }
@@ -641,10 +545,9 @@ public final class SpaceV2 {
     /**
      *
      * @param key a RegVar mapping key
-     * @return the value of the registered RegVar, or null if one of those 3 is met:
-     * - the key doesn't exist
-     * - the RegVar itself is null (? rare, only a bug rises that)
-     * - the value for the existing key is really null
+     * @return the value of the registered RegVar, or null if one of those 3 is
+     * met: - the key doesn't exist - the RegVar itself is null (? rare, only a
+     * bug rises that) - the value for the existing key is really null
      */
     public String readRegVar(String key) {
         if (key != null) {

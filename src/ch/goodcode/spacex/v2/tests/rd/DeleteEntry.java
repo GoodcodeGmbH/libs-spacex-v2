@@ -3,7 +3,7 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package ch.goodcode.spacex.v2.engine;
+package ch.goodcode.spacex.v2.tests.rd;
 
 import java.io.Serializable;
 import javax.persistence.Entity;
