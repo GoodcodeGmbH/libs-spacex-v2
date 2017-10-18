@@ -81,13 +81,13 @@ public class OdbConfFilePrinter {
     public static void buildConf() {
         StringBuilder sb = new StringBuilder();
         sb.append("<objectdb>\n\n");
-        printGeneral(sb);
-        printDatabase(sb);
-        printEntities(sb);
-        sb.append("	<schema>\n"
-                + "	</schema>\n");
-        printServer(sb);
-        printUsers(sb);
+//        printGeneral(sb);
+//        printDatabase(sb);
+//        printEntities(sb);
+//        sb.append("	<schema>\n"
+//                + "	</schema>\n");
+//        printServer(sb);
+//        printUsers(sb);
         printSsl(sb);
         sb.append("</objectdb>\n");
     }

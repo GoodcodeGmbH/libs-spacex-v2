@@ -5,8 +5,10 @@
  */
 package ch.goodcode.spacex.v2.compute;
 
+import ch.goodcode.spacex.v2.IV2Entity;
 import java.io.Serializable;
 import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
 import javax.persistence.Id;
 
 /**
@@ -14,7 +16,7 @@ import javax.persistence.Id;
  * @author Paolo Domenighetti
  */
 @Entity
-public class RegVar implements Serializable {
+public class RegVar implements IV2Entity {
 
     @Id
     private String key;
@@ -34,6 +36,11 @@ public class RegVar implements Serializable {
 
     public void setValue(String value) {
         this.value = value;
+    }
+
+    @Override
+    public long uid() {
+        return key.hashCode();
     }
 
 }

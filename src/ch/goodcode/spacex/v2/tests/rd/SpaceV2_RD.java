@@ -18,7 +18,6 @@ import ch.goodcode.libs.utils.ReflectUtils;
 import ch.goodcode.libs.utils.dataspecs.EJSONArray;
 import ch.goodcode.libs.utils.dataspecs.EJSONObject;
 import ch.goodcode.spacex.v2.compute.RegVar;
-import ch.goodcode.spacex.v2.compute.TokensPolicy;
 import java.io.File;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
@@ -70,7 +69,6 @@ public final class SpaceV2_RD {
     private LogBuffer LOG;
     private EntityManagerFactory mainEMF;
     private final HashMap<String, EntityManagerFactory> emfsMAP = new HashMap<>();
-    private final HashMap<String, TokensPolicy> tokensPolicies = new HashMap<>();
     private final HashMap<Long, EntityManager> ems = new HashMap<>();
     private final HashMap<Long, Long> emsT = new HashMap<>();
     private long emsC = 0L;
@@ -226,7 +224,6 @@ public final class SpaceV2_RD {
 
                         String dt = unitJson.getString("dataType");
                         int tokens = (unitJson.getInteger("dataSize") / EMF_SIZE_LIMIT) + 1;
-                        tokensPolicies.put(dt, new TokensPolicy(tokens, unitJson.getString("tokensTypeRule"), unitJson.getString("tokensField")));
 
                         for (int j = 0; j < tokens; j++) {
                             EntityManagerFactory anEmf = Persistence.createEntityManagerFactory(
@@ -508,12 +505,12 @@ public final class SpaceV2_RD {
             for (int i = 0; i < payload.size(); i++) {
                 EJSONObject object = payload.getObject(i);
                 String cln = object.getString("clazz");
-                if(!map.containsKey(cln)) {
+                if (!map.containsKey(cln)) {
                     map.put(cln, new ArrayList<>());
                 }
                 map.get(cln).add(object);
             }
-            
+
             for (Map.Entry<String, ArrayList<EJSONObject>> entry : map.entrySet()) {
                 Class<?> aClass = ReflectUtils.getClass(entry.getKey());
                 ArrayList<Object> res = new ArrayList<>();
@@ -523,7 +520,7 @@ public final class SpaceV2_RD {
                 }
                 update(res); // <<------------------------------------------- update/create
             }
-            
+
         } catch (Exception ex) {
 
         }
@@ -537,7 +534,7 @@ public final class SpaceV2_RD {
             Object deser = deser(payload, aClass);
             update(deser); // <<------------------------------------------- update/create
         } catch (Exception ex) {
-            
+
         }
     }
 
@@ -636,41 +633,39 @@ public final class SpaceV2_RD {
     }
 
     private <T> EntityManager em(Thread currentThread, Class<T> clazz) {
-        if (tokensPolicies.containsKey(clazz.getSimpleName())) {
-            return null; // <<-- in token processing...
-        } else {
-            if (emsC > EM_PURGE_LIMIT) {
-                emsC = 0L;
-                (new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        long now = System.currentTimeMillis();
-                        ArrayList<Long> tbDelTids = new ArrayList<>();
-                        for (Map.Entry<Long, Long> entry : emsT.entrySet()) {
-                            Long tid = entry.getKey();
-                            Long lasrtSeen = entry.getValue();
-                            if (now - lasrtSeen > EM_PURGE_TIMEOUT) {
-                                tbDelTids.add(tid);
-                            }
-                        }
-                        for (Long threadID : tbDelTids) {
-                            ems.remove(threadID);
-                            emsT.remove(threadID);
+
+        if (emsC > EM_PURGE_LIMIT) {
+            emsC = 0L;
+            (new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    long now = System.currentTimeMillis();
+                    ArrayList<Long> tbDelTids = new ArrayList<>();
+                    for (Map.Entry<Long, Long> entry : emsT.entrySet()) {
+                        Long tid = entry.getKey();
+                        Long lasrtSeen = entry.getValue();
+                        if (now - lasrtSeen > EM_PURGE_TIMEOUT) {
+                            tbDelTids.add(tid);
                         }
                     }
-                })).start();
-            }
-            if (!ems.containsKey(currentThread.getId())) {
-                if (emfsMAP.containsKey(clazz.getSimpleName())) {
-                    ems.put(currentThread.getId(), emfsMAP.get(clazz.getSimpleName()).createEntityManager());
-                } else {
-                    ems.put(currentThread.getId(), mainEMF.createEntityManager());
+                    for (Long threadID : tbDelTids) {
+                        ems.remove(threadID);
+                        emsT.remove(threadID);
+                    }
                 }
-                emsC++;
-            }
-            emsT.put(currentThread.getId(), System.currentTimeMillis());
-            return ems.get(currentThread.getId());
+            })).start();
         }
+        if (!ems.containsKey(currentThread.getId())) {
+            if (emfsMAP.containsKey(clazz.getSimpleName())) {
+                ems.put(currentThread.getId(), emfsMAP.get(clazz.getSimpleName()).createEntityManager());
+            } else {
+                ems.put(currentThread.getId(), mainEMF.createEntityManager());
+            }
+            emsC++;
+        }
+        emsT.put(currentThread.getId(), System.currentTimeMillis());
+        return ems.get(currentThread.getId());
+
     }
 
     private <T> boolean isNotInnerType(T item) {
@@ -1346,7 +1341,6 @@ public final class SpaceV2_RD {
     // =================================================================================================
     // =================================================================================================
     // special retrievers and tool methods for hyperspace
-    
     private ArrayList<IHyperspaceEntity> retrieveToBeUpdatedEntities(String peerId, ArrayList<UpdateEntry> eb) {
         ArrayList<IHyperspaceEntity> res = new ArrayList<>();
         eb.addAll(findAll_MATCH(UpdateEntry.class, "peer", peerId, 0));
@@ -1365,7 +1359,7 @@ public final class SpaceV2_RD {
                 final Class<?> aClass = ReflectUtils.getClass(entry.getKey());
                 final List<String> ids = entry.getValue();
                 for (String id : ids) {
-                    res.add((IHyperspaceEntity)get(aClass, id));
+                    res.add((IHyperspaceEntity) get(aClass, id));
                 }
             } catch (ClassNotFoundException ex) {
 

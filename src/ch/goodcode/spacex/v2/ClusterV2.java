@@ -20,7 +20,7 @@ public final class ClusterV2 {
     private Process clusterServerProcess;
     private ThreadManager tmanager;
     private LogBuffer LOG;
-    private final EJSONObject spaceConf;
+    private final EJSONObject clusterConf;
     private int debugRunningPort = 0;
     
     /**
@@ -32,7 +32,7 @@ public final class ClusterV2 {
      */
     public ClusterV2(String uid, String logPath, int logLevel, String clusterConfFilePath) {
         LOG = new LogBuffer("clusterv2-" + uid, logPath, 1, logLevel);
-        this.spaceConf = new EJSONObject(EnhancedFilesystemIO.fileRead(new File(clusterConfFilePath)).toString());
+        this.clusterConf = new EJSONObject(EnhancedFilesystemIO.fileRead(new File(clusterConfFilePath)).toString());
     }
     
     /**
@@ -47,14 +47,14 @@ public final class ClusterV2 {
     public ClusterV2(String uid, String logPath, int logLevel, int runningPort, String dbFoldersForDebug0) {
         LOG = new LogBuffer("clusterv2-" + uid, logPath, 1, logLevel);
         this.debugRunningPort = runningPort;
-        this.spaceConf = null;
+        this.clusterConf = null;
     }
     
     public void start() {
         if(isDebug()) {
-            ProcessBuilder p = new ProcessBuilder(strings);
+            ProcessBuilder p = new ProcessBuilder("");
         } else {
-            if(this.spaceConf != null) {
+            if(this.clusterConf != null) {
                 
             } else {
                 // full error
