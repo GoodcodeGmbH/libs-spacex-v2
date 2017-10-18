@@ -6,7 +6,7 @@
 package ch.goodcode.spacex.v2.tests.rd;
 
 import ch.goodcode.libs.logging.LogBuffer;
-import ch.goodcode.spacex.v2.SpaceV2;
+import ch.goodcode.spacex.v2.tests.SpaceV2Debug;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;

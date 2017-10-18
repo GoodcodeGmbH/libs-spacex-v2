@@ -5,7 +5,7 @@
  */
 package ch.goodcode.spacex.v2.compute;
 
-import ch.goodcode.spacex.v2.SpaceV2;
+import ch.goodcode.spacex.v2.tests.SpaceV2Debug;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -48,7 +48,7 @@ public abstract class ObjectDBUnit {
      * @return 
      */
     public <T> EntityManager em(Thread currentThread, Class<T> clazz) {
-        if (emsC > SpaceV2.EM_PURGE_LIMIT) {
+        if (emsC > SpaceV2Debug.EM_PURGE_LIMIT) {
             emsC = 0L;
             (new Thread(new Runnable() {
                 @Override
@@ -58,7 +58,7 @@ public abstract class ObjectDBUnit {
                     for (Map.Entry<Long, Long> entry : emsT.entrySet()) {
                         Long tid = entry.getKey();
                         Long lasrtSeen = entry.getValue();
-                        if (now - lasrtSeen > SpaceV2.EM_PURGE_TIMEOUT) {
+                        if (now - lasrtSeen > SpaceV2Debug.EM_PURGE_TIMEOUT) {
                             tbDelTids.add(tid);
                         }
                     }

@@ -8,7 +8,7 @@ package ch.goodcode.spacex.v2.tests.rd;
 import ch.goodcode.libs.logging.LogBuffer;
 import ch.goodcode.libs.utils.dataspecs.EJSONArray;
 import ch.goodcode.libs.utils.dataspecs.EJSONObject;
-import ch.goodcode.spacex.v2.SpaceV2;
+import ch.goodcode.spacex.v2.tests.SpaceV2Debug;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.net.Socket;

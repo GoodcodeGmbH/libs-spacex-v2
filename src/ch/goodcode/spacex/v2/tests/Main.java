@@ -7,7 +7,6 @@ package ch.goodcode.spacex.v2.tests;
 
 import ch.goodcode.libs.logging.LogBuffer;
 import ch.goodcode.libs.security.EnhancedCryptography;
-import ch.goodcode.spacex.v2.SpaceV2;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import javax.persistence.*;
@@ -21,7 +20,7 @@ public class Main {
     public static void main(String[] args) {
         
         try {
-            final SpaceV2 mem = new SpaceV2("", "C:\\temp\\space-test\\log\\", LogBuffer.LOGLEVEL_PEDANTIC, "C:\\temp\\space-test\\mem.odb");
+            final SpaceV2Debug mem = new SpaceV2Debug("", "C:\\temp\\space-test\\log\\", LogBuffer.LOGLEVEL_PEDANTIC, "C:\\temp\\space-test\\mem.odb");
             mem.start();
             
             Author a = new Author();
