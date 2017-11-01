@@ -6,7 +6,6 @@
 package ch.goodcode.spacex.v2.compute;
 
 import ch.goodcode.spacex.v2.SpaceV2;
-import ch.goodcode.spacex.v2.tests.SpaceV2Debug;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;

@@ -151,9 +151,8 @@ public final class SpaceV2 {
             mainEMF = Persistence.createEntityManagerFactory(
                     optHostFull);
             ems.put(0L, mainEMF.createEntityManager());
-            System.err.println("UUAAAARGH DEBUG!!!!");
 
-            LOG.o("Mod0 (debug) detected: main ef only with path " + optHostFull);
+            LOG.o("Mod0 (debug) UUAAAARGH DEBUG detected: main ef only with path " + optHostFull);
 
         } else if (odbConf == null) {
 
