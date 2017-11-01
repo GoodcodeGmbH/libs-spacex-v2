@@ -12,7 +12,7 @@ import ch.goodcode.libs.utils.GOOUtils;
 import ch.goodcode.libs.utils.dataspecs.EJSONArray;
 import ch.goodcode.libs.utils.dataspecs.EJSONObject;
 import ch.goodcode.spacex.v2.compute.RegVar;
-import ch.goodcode.spacex.v2.compute.TokensPolicy;
+//import ch.goodcode.spacex.v2.compute.TokensPolicy;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -33,8 +33,8 @@ public final class SpaceV2 {
 
     // ======================================================================================================================================
     private static final int EMF_SIZE_LIMIT = 1_000_000;
-    private static final int EM_PURGE_LIMIT = 50;
-    private static final long EM_PURGE_TIMEOUT = 20 * GOOUtils.TIME_MINUTES;
+    public static final int EM_PURGE_LIMIT = 50;
+    public static final long EM_PURGE_TIMEOUT = 20 * GOOUtils.TIME_MINUTES;
     private static final int MAGIC_BATCH_BOUNDARY = 50;
     private static final int MAGIC_BATCH_DIVISOR = 20_000;
 
@@ -51,7 +51,7 @@ public final class SpaceV2 {
     private LogBuffer LOG;
     private EntityManagerFactory mainEMF;
     private final ConcurrentHashMap<String, EntityManagerFactory> emfsMAP = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, TokensPolicy> tokensPolicies = new ConcurrentHashMap<>();
+//    private final ConcurrentHashMap<String, TokensPolicy> tokensPolicies = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, EntityManager> ems = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, Long> emsT = new ConcurrentHashMap<>();
     private long emsC = 0L;
@@ -201,7 +201,7 @@ public final class SpaceV2 {
 
                             String dt = unitJson.getString("dataType");
                             int tokens = (unitJson.getInteger("dataSize") / EMF_SIZE_LIMIT) + 1;
-                            tokensPolicies.put(dt, new TokensPolicy(tokens, unitJson.getString("tokensTypeRule"), unitJson.getString("tokensField")));
+//                            tokensPolicies.put(dt, new TokensPolicy(tokens, unitJson.getString("tokensTypeRule"), unitJson.getString("tokensField")));
 
                             for (int j = 0; j < tokens; j++) {
                                 EntityManagerFactory anEmf = Persistence.createEntityManagerFactory(
@@ -359,7 +359,7 @@ public final class SpaceV2 {
     }
 
     private <T> EntityManager emLocalOnly(Thread currentThread, Class<T> clazz) {
-        if (tokensPolicies.containsKey(clazz.getSimpleName())) {
+        if (false) {
             return null; // <<-- in token processing...
         } else {
             if (emsC > EM_PURGE_LIMIT) {
@@ -983,5 +983,16 @@ public final class SpaceV2 {
         }
     }
 
+    public <T extends IV2Entity> List<T> findAll_TIME(boolean sortOrder, String sortField, Class<T> clazz, String timeName, long from, long to) {
+        if (sortField != null) {
+            String so = "asc";
+            if (sortOrder) {
+                so = "desc";
+            }
+            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to, null, "order by c." + sortField + " " + so);
+        } else {
+            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to, null);
+        }
+    }
 }
 

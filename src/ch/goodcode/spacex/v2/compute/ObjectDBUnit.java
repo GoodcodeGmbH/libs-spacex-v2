@@ -44,11 +44,11 @@ public abstract class ObjectDBUnit {
     /**
      * 
      * @param <T>
-     * @param currentThread
      * @param clazz
      * @return 
      */
-    public <T> EntityManager em(Thread currentThread, Class<T> clazz) {
+    public <T> EntityManager em(Class<T> clazz) {
+        Thread currentThread = Thread.currentThread();
         if (emsC > SpaceV2.EM_PURGE_LIMIT) {
             emsC = 0L;
             (new Thread(new Runnable() {
