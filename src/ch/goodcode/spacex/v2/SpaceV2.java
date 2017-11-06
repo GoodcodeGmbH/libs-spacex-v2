@@ -429,7 +429,7 @@ public final class SpaceV2 {
      * @param <T>
      * @param item
      */
-    public <T> void create(T item) {
+    public synchronized <T> void create(T item) {
         EntityManager em = em(item.getClass(), true);
         try {
             if (em != null) {
@@ -456,7 +456,7 @@ public final class SpaceV2 {
      * @param <T>
      * @param item
      */
-    public <T> void update(T item) {
+    public synchronized <T> void update(T item) {
         EntityManager em = em(item.getClass(), true);
         try {
             if (em != null) {
@@ -483,7 +483,7 @@ public final class SpaceV2 {
      * @param <T>
      * @param item
      */
-    public <T> void delete(T item) {
+    public synchronized <T> void delete(T item) {
         EntityManager em = em(item.getClass(), true);
         try {
             if (em != null) {
