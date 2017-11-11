@@ -9,20 +9,16 @@ import ch.goodcode.libs.logging.LogBuffer;
 import ch.goodcode.libs.io.EnhancedFilesystemIO;
 import ch.goodcode.libs.threading.ThreadManager;
 import ch.goodcode.libs.utils.GOOUtils;
-import ch.goodcode.libs.utils.dataspecs.EJSONArray;
 import ch.goodcode.libs.utils.dataspecs.EJSONObject;
+import ch.goodcode.spacex.v2.compute.ODBEmbeddedUnit;
+import ch.goodcode.spacex.v2.compute.ObjectDBUnit;
 import ch.goodcode.spacex.v2.compute.RegVar;
-//import ch.goodcode.spacex.v2.compute.TokensPolicy;
+import ch.goodcode.spacex.v2.compute.ResultsThreadContext;
 import java.io.File;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import javax.persistence.EntityManager;
-import javax.persistence.EntityManagerFactory;
-import javax.persistence.Persistence;
-import javax.persistence.Query;
 import javax.persistence.TypedQuery;
 
 /**
@@ -32,58 +28,44 @@ import javax.persistence.TypedQuery;
 public final class SpaceV2 {
 
     // ======================================================================================================================================
-    private static final int EMF_SIZE_LIMIT = 1_000_000;
+    public static final int EMF_SIZE_LIMIT = 1_000_000;
     public static final int EM_PURGE_LIMIT = 50;
     public static final long EM_PURGE_TIMEOUT = 20 * GOOUtils.TIME_MINUTES;
-    private static final int MAGIC_BATCH_BOUNDARY = 50;
     private static final int MAGIC_BATCH_DIVISOR = 20_000;
+    private static final String MAIN_UNIT_IDENTIFIER = "MAIN";
 
     //-
-    private final boolean IS_REAL_SPACE;
-    private final String myId;
-    private final String myPassword;
+    private final String MY_ID;
 
-    public String geSpaceId() {
-        return myId;
-    }
+    // -
+    private final ThreadManager TM = new ThreadManager(1, 100);
+    private final ThreadLocal<EntityManager> EM_CONTEXT = new ThreadLocal<>();
+    private final ThreadLocal<ResultsThreadContext<? extends IV2Entity>> RESULTS_CONTEXT = new ThreadLocal<>(); // not used yet!
 
     //-
     private LogBuffer LOG;
-    private EntityManagerFactory mainEMF;
-    private final ConcurrentHashMap<String, EntityManagerFactory> emfsMAP = new ConcurrentHashMap<>();
-//    private final ConcurrentHashMap<String, TokensPolicy> tokensPolicies = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Long, EntityManager> ems = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Long, Long> emsT = new ConcurrentHashMap<>();
-    private long emsC = 0L;
-    private final EJSONObject odbConf;
     private final String optHostFull;
     private String optUser, optPass;
-    private final ThreadManager tmanager = new ThreadManager(100, 100);
+    private final HashMap<String, ObjectDBUnit> ODBUNITS = new HashMap<>();
 
     // -
+    private final EJSONObject odbConf;
     private final EJSONObject spaceConf;
 
     /**
      *
      * @param uid
-     * @param spacePassword may be null if there is no REAL SPACE
      * @param logPath
      * @param logLevel
      * @param odbConfFilePath
      * @param spaceConfFilePath
      */
-    public SpaceV2(String uid, String spacePassword, String logPath, int logLevel, String odbConfFilePath, String spaceConfFilePath) {
+    public SpaceV2(String uid, String logPath, int logLevel, String odbConfFilePath, String spaceConfFilePath) {
         LOG = new LogBuffer("spacev2-" + uid, logPath, 1, logLevel);
-        IS_REAL_SPACE = spaceConfFilePath != null;
         odbConf = new EJSONObject(EnhancedFilesystemIO.fileRead(new File(odbConfFilePath)).toString());
-        if (IS_REAL_SPACE) {
-            spaceConf = new EJSONObject(EnhancedFilesystemIO.fileRead(new File(spaceConfFilePath)).toString());
-        } else {
-            spaceConf = null;
-        }
+        spaceConf = new EJSONObject(EnhancedFilesystemIO.fileRead(new File(spaceConfFilePath)).toString());
         optHostFull = null;
-        this.myId = uid;
-        this.myPassword = spacePassword;
+        this.MY_ID = uid;
     }
 
     /**
@@ -98,14 +80,12 @@ public final class SpaceV2 {
      */
     public SpaceV2(String uid, String logPath, int logLevel, String hostStringFull, String user, String pass) {
         LOG = new LogBuffer("spacev2-" + uid, logPath, 1, logLevel);
-        IS_REAL_SPACE = false;
         odbConf = null;
         spaceConf = null;
         optHostFull = hostStringFull;
         optUser = user;
         optPass = pass;
-        this.myId = uid;
-        this.myPassword = "1234";
+        this.MY_ID = uid;
     }
 
     /**
@@ -118,12 +98,10 @@ public final class SpaceV2 {
      */
     public SpaceV2(String uid, String logPath, int logLevel, String odbFilePath) {
         LOG = new LogBuffer("spacev2-" + uid, logPath, 1, logLevel);
-        IS_REAL_SPACE = false;
         odbConf = null;
         spaceConf = null;
         optHostFull = odbFilePath;
-        this.myId = uid;
-        this.myPassword = "1234";
+        this.MY_ID = uid;
     }
 
     /**
@@ -138,140 +116,53 @@ public final class SpaceV2 {
         this(uid, logPath, logLevel, "$objectdb/db/debug_" + debugId + ".odb");
     }
 
+    private boolean isDebug() {
+        return optUser == null || odbConf == null;
+    }
+
+    public String geSpaceId() {
+        return MY_ID;
+    }
+
     /**
      *
      * @throws Exception
      */
     public void start() throws Exception {
-        LOG.o("Starting SV2 instance '" + myId + "'...");
+        LOG.o("Starting SV2 instance '" + MY_ID + "'...");
 
         // put in place MEM TIER ---------------------------------------------------
         if (optUser == null) {
 
-            mainEMF = Persistence.createEntityManagerFactory(
-                    optHostFull);
-            ems.put(0L, mainEMF.createEntityManager());
-
-            LOG.o("Mod0 (debug) UUAAAARGH DEBUG detected: main ef only with path " + optHostFull);
+            // DEBUG setup (uses default config in odb root folder)
+            // no units are space
+            // here odb limits apply (10 clazzes, 10^6 entities per clazz)
+            ODBEmbeddedUnit embedded = new ODBEmbeddedUnit(optHostFull);
+            ODBUNITS.put(MAIN_UNIT_IDENTIFIER, embedded);
+            embedded.initialize();
+            LOG.o("Mod0 (debug) detected: main ef only with path " + optHostFull);
 
         } else if (odbConf == null) {
 
-            Map<String, String> properties = new HashMap<>();
-            properties.put("javax.persistence.jdbc.user", optUser);
-            properties.put("javax.persistence.jdbc.password", optPass);
-            mainEMF = Persistence.createEntityManagerFactory(
-                    optHostFull,
-                    properties);
-
+            // DEBUG setup (uses default config in odb root folder)
+            // no units are space
+            // here odb limits apply (10 clazzes, 10^6 entities per clazz)
+            ODBEmbeddedUnit embedded = new ODBEmbeddedUnit(optHostFull, optUser, optPass);
+            ODBUNITS.put(MAIN_UNIT_IDENTIFIER, embedded);
+            embedded.initialize();
             LOG.o("Mod1 ('configless', debug) detected: main ef only with path " + optHostFull + " and user access");
 
         } else {
 
             LOG.o("................... 100%: odb Config file(s) detected and properly parsed.");
+            System.setProperty("objectdb.conf", "/my/objectdb.conf"); // TODO
+            // TODO main emf must exist always, if not used it is a service local odb embedded runtime
 
-            if (!IS_REAL_SPACE) {
-
-                EJSONObject mainUnitJson = odbConf.getObject("mainUnit");
-                if (mainUnitJson.getBoolean("isFile")) {
-                    mainEMF = Persistence.createEntityManagerFactory(
-                            mainUnitJson.getString("memPath"));
-                } else {
-                    Map<String, String> properties = new HashMap<>();
-                    properties.put("javax.persistence.jdbc.user", mainUnitJson.getString("odbUser"));
-                    properties.put("javax.persistence.jdbc.password", mainUnitJson.getString("odbPass"));
-                    mainEMF = Persistence.createEntityManagerFactory(
-                            "objectdb://" + mainUnitJson.getString("odbHost") + ":" + mainUnitJson.getInteger("odbPort") + "/" + mainUnitJson.getString("memUid") + ".odb",
-                            properties);
-
-                    EJSONObject backup = mainUnitJson.getObject("backup");
-                    if (backup != null) {
-                        String target = backup.getString("target");
-                        tmanager.fetchDaemon(() -> {
-                            Query backupQuery = mainEMF.createEntityManager().createQuery("objectdb backup");
-                            backupQuery.setParameter("target", new java.io.File(target));
-                            backupQuery.getSingleResult();
-                        }, 5000L, backup.getInteger("schedule") * GOOUtils.TIME_HOURS);
-                    }
-                }
-
-                EJSONArray otherUnitsJsonArray = odbConf.getArray("otherUnits");
-                for (int i = 0; i < otherUnitsJsonArray.size(); i++) {
-                    EJSONObject unitJson = otherUnitsJsonArray.getObject(i);
-                    if (unitJson.getBoolean("isFile")) {
-                        if (unitJson.getBoolean("isTokenized")) {
-
-                            String dt = unitJson.getString("dataType");
-                            int tokens = (unitJson.getInteger("dataSize") / EMF_SIZE_LIMIT) + 1;
-//                            tokensPolicies.put(dt, new TokensPolicy(tokens, unitJson.getString("tokensTypeRule"), unitJson.getString("tokensField")));
-
-                            for (int j = 0; j < tokens; j++) {
-                                EntityManagerFactory anEmf = Persistence.createEntityManagerFactory(
-                                        unitJson.getString("memSubfolder") + "/" + dt.toLowerCase() + "_" + j + ".odb");
-                                emfsMAP.put(dt + "_" + j, anEmf);
-                                EJSONObject backup = unitJson.getObject("backup");
-                                if (backup != null) {
-                                    String target = backup.getString("target");
-                                    tmanager.fetchDaemon(() -> {
-                                        Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
-                                        backupQuery.setParameter("target", new java.io.File(target));
-                                        backupQuery.getSingleResult();
-                                    }, 5000L, backup.getInteger("schedule") * GOOUtils.TIME_HOURS);
-
-                                }
-                            }
-
-                        } else {
-                            EntityManagerFactory anEmf = Persistence.createEntityManagerFactory(
-                                    unitJson.getString("memPath"));
-                            EJSONArray types = unitJson.getArray("dataTypes");
-                            for (int j = 0; j < types.size(); j++) {
-                                emfsMAP.put(types.getString(j), anEmf);
-                            }
-
-                            EJSONObject backup = unitJson.getObject("backup");
-                            if (backup != null) {
-                                String target = backup.getString("target");
-                                tmanager.fetchDaemon(() -> {
-                                    Query backupQuery = anEmf.createEntityManager().createQuery("objectdb backup");
-                                    backupQuery.setParameter("target", new java.io.File(target));
-                                    backupQuery.getSingleResult();
-                                }, 5000L, backup.getInteger("schedule") * GOOUtils.TIME_HOURS);
-
-                            }
-
-                        }
-
-                    } else {
-                        Map<String, String> properties = new HashMap<>();
-                        properties.put("javax.persistence.jdbc.user", unitJson.getString("odbUser"));
-                        properties.put("javax.persistence.jdbc.password", unitJson.getString("odbPass"));
-                        EntityManagerFactory anEmf = Persistence.createEntityManagerFactory(
-                                "objectdb://" + unitJson.getString("odbHost") + ":" + unitJson.getInteger("odbPort") + "/" + unitJson.getString("memUid") + ".odb",
-                                properties);
-                        EJSONArray types = unitJson.getArray("dataTypes");
-                        for (int j = 0; j < types.size(); j++) {
-                            emfsMAP.put(types.getString(j), anEmf);
-                        }
-                    }
-                }
-
-                LOG.o("ModX detected: main emf only with path " + optHostFull + ", emfs built: " + emfsMAP.size());
-            } else {
-                LOG.o("SV2 Space enabled, deploying and starting it on port " + spaceConf.getInteger("listeningPort") + "...");
-                // prepare the main listening server for announces and objects:
-
-                LOG.o("SV2 Space is ready.");
-            }
         }
 
-        if (IS_REAL_SPACE) {
-            LOG.o("SV2 full instance '" + myId + "' with its Space has properly started. Have a nice day.");
-        } else {
-            LOG.o("SV2 instance '" + myId + "' has properly started. Have a nice day.");
-        }
     }
 
-    private final HashMap<String, ILevel3Updatable<?>> LEVEL3CACHELISTENERS = new HashMap<>();
+    private final HashMap<String, ILevel3CacheListener<?>> LEVEL3CACHELISTENERS = new HashMap<>();
 
     /**
      *
@@ -279,52 +170,91 @@ public final class SpaceV2 {
      * @param clazz
      * @param aLevel3CacheListener
      */
-    public <T> void registerL3CacheListener(Class<T> clazz, ILevel3Updatable<T> aLevel3CacheListener) {
+    public <T extends IV2Entity> void registerL3CacheListener(Class<T> clazz, ILevel3CacheListener<T> aLevel3CacheListener) {
         LEVEL3CACHELISTENERS.put(clazz.getSimpleName(), aLevel3CacheListener);
     }
 
-    private <T> void createForCacheListeners(T object) {
+    private synchronized <T extends IV2Entity> void createForCacheListeners(T object) {
         final String name = object.getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name)).create(object);
+            ILevel3CacheListener<T> y = (ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name);
+            if (y.deferredProcessing()) {
+                TM.fetchCached(() -> {
+                    y.create(object);
+                });
+            } else {
+                y.create(object);
+            }
         }
     }
 
-    private <T> void updateForCacheListeners(T object) {
+    private synchronized <T extends IV2Entity> void updateForCacheListeners(T object) {
         final String name = object.getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name)).update(object);
+            ILevel3CacheListener<T> y = (ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name);
+            if (y.deferredProcessing()) {
+                TM.fetchCached(() -> {
+                    y.update(object);
+                });
+            } else {
+                y.update(object);
+            }
         }
     }
 
-    private <T> void deleteForCacheListeners(T object) {
+    private synchronized <T extends IV2Entity> void deleteForCacheListeners(T object) {
         final String name = object.getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name)).delete(object);
+            ILevel3CacheListener<T> y = (ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name);
+            if (y.deferredProcessing()) {
+                TM.fetchCached(() -> {
+                    y.delete(object);
+                });
+            } else {
+                y.delete(object);
+            }
         }
     }
 
-    private <T> void createForCacheListeners(List<T> objects) {
+    private synchronized <T extends IV2Entity> void createForCacheListeners(List<T> objects) {
         final String name = objects.get(0).getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ILevel3Updatable<T> c = ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name));
-            c.create(objects);
+            ILevel3CacheListener<T> y = ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name));
+            if (y.deferredProcessing()) {
+                TM.fetchCached(() -> {
+                    y.create(objects);
+                });
+            } else {
+                y.create(objects);
+            }
         }
     }
 
-    private <T> void updateForCacheListeners(List<T> objects) {
+    private synchronized <T extends IV2Entity> void updateForCacheListeners(List<T> objects) {
         final String name = objects.get(0).getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ILevel3Updatable<T> c = ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name));
-            c.update(objects);
+            ILevel3CacheListener<T> y = ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name));
+            if (y.deferredProcessing()) {
+                TM.fetchCached(() -> {
+                    y.update(objects);
+                });
+            } else {
+                y.update(objects);
+            }
         }
     }
 
-    private <T> void deleteForCacheListeners(List<T> objects) {
+    private synchronized <T extends IV2Entity> void deleteForCacheListeners(List<T> objects) {
         final String name = objects.get(0).getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ILevel3Updatable<T> c = ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name));
-            c.delete(objects);
+            ILevel3CacheListener<T> y = ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name));
+            if (y.deferredProcessing()) {
+                TM.fetchCached(() -> {
+                    y.delete(objects);
+                });
+            } else {
+                y.delete(objects);
+            }
         }
     }
 
@@ -333,122 +263,66 @@ public final class SpaceV2 {
      * @throws Exception
      */
     public void stop() throws Exception {
-        LOG.o("Now stopping SV2 '" + myId + "'...");
-
-        for (Map.Entry<Long, EntityManager> entry : ems.entrySet()) {
-            EntityManager em = entry.getValue();
-            em.close();
+        LOG.o("Now stopping SV2 '" + MY_ID + "'...");
+        for (Map.Entry<String, ObjectDBUnit> entry : ODBUNITS.entrySet()) {
+            ObjectDBUnit value = entry.getValue();
+            value.dispose();
         }
-        ems.clear();
-        for (Map.Entry<String, EntityManagerFactory> entry : emfsMAP.entrySet()) {
-            entry.getValue().close();
-        }
-        emfsMAP.clear();
-
-        //-
-        mainEMF.close();
-        LOG.o("Stopped SV2 '" + myId + "', goodbye.");
+        ODBUNITS.clear();
+        LOG.o("Stopped SV2 '" + MY_ID + "', goodbye.");
         LOG.s();
     }
 
-    private synchronized <T> EntityManager em(Class<T> clazz, boolean write) {
-        if (!IS_REAL_SPACE) {
-            return emLocalOnly(Thread.currentThread(), clazz);
-        } else {
-            return emRealSpace(Thread.currentThread(), clazz, write);
-        }
+    private <T extends IV2Entity> void emBegin(Class<T> clazz) {
+        // TODO...
+        EntityManager found = null;
+        EM_CONTEXT.set(found);
     }
 
-    private <T> EntityManager emLocalOnly(Thread currentThread, Class<T> clazz) {
-        return ems.get(0L);
-//        if (false) {
-//            return null; // <<-- in token processing...
-//        } else {
-//            if (emsC > EM_PURGE_LIMIT) {
-//                emsC = 0L;
-//                (new Thread(new Runnable() {
-//                    @Override
-//                    public void run() {
-//                        long now = System.currentTimeMillis();
-//                        ArrayList<Long> tbDelTids = new ArrayList<>();
-//                        for (Map.Entry<Long, Long> entry : emsT.entrySet()) {
-//                            Long tid = entry.getKey();
-//                            Long lasrtSeen = entry.getValue();
-//                            if (now - lasrtSeen > EM_PURGE_TIMEOUT) {
-//                                tbDelTids.add(tid);
-//                            }
-//                        }
-//                        for (Long threadID : tbDelTids) {
-//                            ems.remove(threadID);
-//                            emsT.remove(threadID);
-//                        }
-//                    }
-//                })).start();
-//            }
-//            if (!ems.containsKey(currentThread.getId())) {
-//                if (emfsMAP.containsKey(clazz.getSimpleName())) {
-//                    ems.put(currentThread.getId(), emfsMAP.get(clazz.getSimpleName()).createEntityManager());
-//                } else {
-//                    ems.put(currentThread.getId(), mainEMF.createEntityManager());
-//                }
-//                emsC++;
-//            }
-//            emsT.put(currentThread.getId(), System.currentTimeMillis());
-//            return ems.get(currentThread.getId());
-//        }
-    }
-
-    private <T> EntityManager emRealSpace(Thread currentThread, Class<T> clazz, boolean write) {
-        return null;
+    private void emEnd() {
+        EM_CONTEXT.remove();
     }
 
     // ========================================================================
-    // Tokens utility methods
-    // Tokens mod is almost not used, in general we work on the model classes
-    // to tokenize the dataset eg. EBook -> EBook_A, EBook_B, etc...; ten types limit is
-    // overcome defining multiple simple non tokenized otherUnit(s) and adapting the a ModelController
-    // to handle multiple classes as if it was one!
-    // (they very well may use the public api of course for meta types entities)
     // ========================================================================
-    // Space utility methods
-    // There should be here some kinf of Locking TODO
-    // (they very well may use the public api of course for meta types entities)
     // ========================================================================
     // PUBLIC API C(R)UD
     // =====================
     /**
      *
-     * ---------------------------------------------------------------- General
-     * behavior for persistency are the following: 1) the proper thread-related
-     * entity manager is fetched 2) JPA crud transaction executed 2a) if NOT ok,
-     * then rollback transaction, warn and keep going without any other JPA
-     * invokations; 2b) else apply JPA crud action and finally: - check for
-     * hyperspace mod, if yes apply screate(...) - ( may be asynch) see ref. -
-     * apply createForCacheListeners(...) -(may be asynch) see ref.
+     * ----------------------------------------------------------------
+     *
+     * General behavior for persistency are the following: 1) the proper
+     * thread-related entity manager is fetched 2) JPA crud transaction executed
+     * 2a) if NOT ok, then rollback transaction, warn and keep going without any
+     * other JPA invokations; 2b) else apply JPA crud action and finally: -
+     * check for hyperspace mod, if yes apply screate(...) - ( may be asynch)
+     * see ref. - apply createForCacheListeners(...) -(may be asynch) see ref.
      *
      * @param <T>
      * @param item
      */
-    public synchronized <T> void create(T item) {
-        EntityManager em = em(item.getClass(), true);
+    public <T extends IV2Entity> void create(T item) {
+        emBegin(item.getClass());
         try {
-            if (em != null) {
-                em.getTransaction().begin();
-                em.persist(item);
-                em.getTransaction().commit();
+            if (EM_CONTEXT.get() != null) {
+                EM_CONTEXT.get().getTransaction().begin();
+                EM_CONTEXT.get().persist(item);
+                EM_CONTEXT.get().getTransaction().commit();
             } else {
                 LOG.e("Null Entity manager in create()");
             }
         } catch (Exception e) {
             LOG.e("Transaction exception in create()", e);
         } finally {
-            if (em != null && em.getTransaction().isActive()) {
-                em.getTransaction().rollback();
+            if (EM_CONTEXT.get() != null && EM_CONTEXT.get().getTransaction().isActive()) {
+                EM_CONTEXT.get().getTransaction().rollback();
                 LOG.i("Faulty transaction in create() has been rolled back.");
-            } else if (em != null) {
+            } else if (EM_CONTEXT.get() != null) {
                 createForCacheListeners(item);
             }
         }
+        emEnd();
     }
 
     /**
@@ -456,26 +330,27 @@ public final class SpaceV2 {
      * @param <T>
      * @param item
      */
-    public synchronized <T> void update(T item) {
-        EntityManager em = em(item.getClass(), true);
+    public <T extends IV2Entity> void update(T item) {
+        emBegin(item.getClass());
         try {
-            if (em != null) {
-                em.getTransaction().begin();
-                em.merge(item);
-                em.getTransaction().commit();
+            if (EM_CONTEXT.get() != null) {
+                EM_CONTEXT.get().getTransaction().begin();
+                EM_CONTEXT.get().merge(item);
+                EM_CONTEXT.get().getTransaction().commit();
             } else {
                 LOG.e("Null Entity manager in update()");
             }
         } catch (Exception e) {
             LOG.e("Transaction exception in update()", e);
         } finally {
-            if (em != null && em.getTransaction().isActive()) {
-                em.getTransaction().rollback();
+            if (EM_CONTEXT.get() != null && EM_CONTEXT.get().getTransaction().isActive()) {
+                EM_CONTEXT.get().getTransaction().rollback();
                 LOG.i("Faulty transaction in delete() has been rolled back.");
-            } else if (em != null) {
+            } else if (EM_CONTEXT.get() != null) {
                 updateForCacheListeners(item);
             }
         }
+        emEnd();
     }
 
     /**
@@ -483,26 +358,27 @@ public final class SpaceV2 {
      * @param <T>
      * @param item
      */
-    public synchronized <T> void delete(T item) {
-        EntityManager em = em(item.getClass(), true);
+    public <T extends IV2Entity> void delete(T item) {
+        emBegin(item.getClass());
         try {
-            if (em != null) {
-                em.getTransaction().begin();
-                em.remove(item);
-                em.getTransaction().commit();
+            if (EM_CONTEXT.get() != null) {
+                EM_CONTEXT.get().getTransaction().begin();
+                EM_CONTEXT.get().remove(item);
+                EM_CONTEXT.get().getTransaction().commit();
             } else {
                 LOG.e("Null Entity manager in delete()");
             }
         } catch (Exception e) {
             LOG.e("Transaction exception in delete()", e);
         } finally {
-            if (em != null && em.getTransaction().isActive()) {
-                em.getTransaction().rollback();
+            if (EM_CONTEXT.get() != null && EM_CONTEXT.get().getTransaction().isActive()) {
+                EM_CONTEXT.get().getTransaction().rollback();
                 LOG.i("Faulty transaction in delete() has been rolled back.");
-            } else if (em != null) {
+            } else if (EM_CONTEXT.get() != null) {
                 deleteForCacheListeners(item);
             }
         }
+        emEnd();
     }
 
     /**
@@ -510,43 +386,38 @@ public final class SpaceV2 {
      * @param <T>
      * @param items
      */
-    public <T> void create(List<T> items) {
-        int size = items.size();
-        if (size < MAGIC_BATCH_BOUNDARY) {
-            for (T it : items) {
-                create(it);
-            }
-        } else {
-            EntityManager em = em(items.get(0).getClass(), true);
-            try {
-                if (em != null) {
-                    em.getTransaction().begin();
-                    int i = 0;
-                    for (T it : items) {
-                        em.persist(it);
-                        if ((i % MAGIC_BATCH_DIVISOR) == 0) {
-                            em.getTransaction().commit();
-                            em.clear();
-                            em.getTransaction().begin();
-                        }
-                        i++;
-                    }
-                    em.getTransaction().commit();
-                } else {
-                    LOG.e("Null Entity manager in create(List<>)");
-                }
-            } catch (Exception e) {
-                LOG.e("Transaction exception in create(List<>)", e);
-            } finally {
-                if (em != null && em.getTransaction().isActive()) {
-                    em.getTransaction().rollback();
-                    LOG.i("Faulty transaction in create(List<>) has been rolled back.");
-                } else if (em != null) {
-                    createForCacheListeners(items);
-                }
-            }
+    public <T extends IV2Entity> void create(List<T> items) {
 
+        emBegin(items.get(0).getClass());
+        try {
+            if (EM_CONTEXT.get() != null) {
+                EM_CONTEXT.get().getTransaction().begin();
+                int i = 0;
+                for (T it : items) {
+                    EM_CONTEXT.get().persist(it);
+                    if ((i % MAGIC_BATCH_DIVISOR) == 0) {
+                        EM_CONTEXT.get().getTransaction().commit();
+                        EM_CONTEXT.get().clear();
+                        EM_CONTEXT.get().getTransaction().begin();
+                    }
+                    i++;
+                }
+                EM_CONTEXT.get().getTransaction().commit();
+            } else {
+                LOG.e("Null Entity manager in create(List<>)");
+            }
+        } catch (Exception e) {
+            LOG.e("Transaction exception in create(List<>)", e);
+        } finally {
+            if (EM_CONTEXT.get() != null && EM_CONTEXT.get().getTransaction().isActive()) {
+                EM_CONTEXT.get().getTransaction().rollback();
+                LOG.i("Faulty transaction in create(List<>) has been rolled back.");
+            } else if (EM_CONTEXT.get() != null) {
+                createForCacheListeners(items);
+            }
         }
+
+        emEnd();
     }
 
     /**
@@ -554,44 +425,38 @@ public final class SpaceV2 {
      * @param <T>
      * @param items
      */
-    public <T> void update(List<T> items) {
-        int size = items.size();
-        if (size < MAGIC_BATCH_BOUNDARY) {
-            for (T it : items) {
-                update(it);
-            }
-        } else {
-            EntityManager em = em(items.get(0).getClass(), true);
+    public <T extends IV2Entity> void update(List<T> items) {
 
-            try {
-                if (em != null) {
-                    em.getTransaction().begin();
-                    int i = 0;
-                    for (T it : items) {
-                        em.merge(it);
-                        if ((i % MAGIC_BATCH_DIVISOR) == 0) {
-                            em.getTransaction().commit();
-                            em.clear();
-                            em.getTransaction().begin();
-                        }
-                        i++;
+        emBegin(items.get(0).getClass());
+        try {
+            if (EM_CONTEXT.get() != null) {
+                EM_CONTEXT.get().getTransaction().begin();
+                int i = 0;
+                for (T it : items) {
+                    EM_CONTEXT.get().merge(it);
+                    if ((i % MAGIC_BATCH_DIVISOR) == 0) {
+                        EM_CONTEXT.get().getTransaction().commit();
+                        EM_CONTEXT.get().clear();
+                        EM_CONTEXT.get().getTransaction().begin();
                     }
-                    em.getTransaction().commit();
-                } else {
-                    LOG.e("Null Entity manager in update(List<>)");
+                    i++;
                 }
-            } catch (Exception e) {
-                LOG.e("Transaction exception in update(List<>)", e);
-            } finally {
-                if (em != null && em.getTransaction().isActive()) {
-                    em.getTransaction().rollback();
-                    LOG.i("Faulty transaction in update(List<>) has been rolled back.");
-                } else if (em != null) {
-                    updateForCacheListeners(items);
-                }
+                EM_CONTEXT.get().getTransaction().commit();
+            } else {
+                LOG.e("Null Entity manager in update(List<>)");
             }
-
+        } catch (Exception e) {
+            LOG.e("Transaction exception in update(List<>)", e);
+        } finally {
+            if (EM_CONTEXT.get() != null && EM_CONTEXT.get().getTransaction().isActive()) {
+                EM_CONTEXT.get().getTransaction().rollback();
+                LOG.i("Faulty transaction in update(List<>) has been rolled back.");
+            } else if (EM_CONTEXT.get() != null) {
+                updateForCacheListeners(items);
+            }
         }
+
+        emEnd();
     }
 
     /**
@@ -599,43 +464,38 @@ public final class SpaceV2 {
      * @param <T>
      * @param items
      */
-    public <T> void delete(List<T> items) {
-        int size = items.size();
-        if (size < MAGIC_BATCH_BOUNDARY) {
-            for (T it : items) {
-                delete(it);
-            }
-        } else {
-            EntityManager em = em(items.get(0).getClass(), true);
-            try {
-                if (em != null) {
-                    em.getTransaction().begin();
-                    int i = 0;
-                    for (T it : items) {
-                        em.remove(it);
-                        if ((i % MAGIC_BATCH_DIVISOR) == 0) {
-                            em.getTransaction().commit();
-                            em.clear();
-                            em.getTransaction().begin();
-                        }
-                        i++;
-                    }
-                    em.getTransaction().commit();
-                } else {
-                    LOG.e("Null Entity manager in delete(List<>)");
-                }
-            } catch (Exception e) {
-                LOG.e("Transaction exception in delete(List<>)", e);
-            } finally {
-                if (em != null && em.getTransaction().isActive()) {
-                    em.getTransaction().rollback();
-                    LOG.i("Faulty transaction in delete(List<>) has been rolled back.");
-                } else if (em != null) {
-                    deleteForCacheListeners(items);
-                }
-            }
+    public <T extends IV2Entity> void delete(List<T> items) {
 
+        emBegin(items.get(0).getClass());
+        try {
+            if (EM_CONTEXT.get() != null) {
+                EM_CONTEXT.get().getTransaction().begin();
+                int i = 0;
+                for (T it : items) {
+                    EM_CONTEXT.get().remove(it);
+                    if ((i % MAGIC_BATCH_DIVISOR) == 0) {
+                        EM_CONTEXT.get().getTransaction().commit();
+                        EM_CONTEXT.get().clear();
+                        EM_CONTEXT.get().getTransaction().begin();
+                    }
+                    i++;
+                }
+                EM_CONTEXT.get().getTransaction().commit();
+            } else {
+                LOG.e("Null Entity manager in delete(List<>)");
+            }
+        } catch (Exception e) {
+            LOG.e("Transaction exception in delete(List<>)", e);
+        } finally {
+            if (EM_CONTEXT.get() != null && EM_CONTEXT.get().getTransaction().isActive()) {
+                EM_CONTEXT.get().getTransaction().rollback();
+                LOG.i("Faulty transaction in delete(List<>) has been rolled back.");
+            } else if (EM_CONTEXT.get() != null) {
+                deleteForCacheListeners(items);
+            }
         }
+
+        emEnd();
     }
 
     // ========================================================================
@@ -689,10 +549,12 @@ public final class SpaceV2 {
      * @param orderByClause
      * @return
      */
-    public <T> List<T> getAll(Class<T> clazz, String orderByClause) {
-        TypedQuery<T> query = em(clazz, false).createQuery(
+    public <T extends IV2Entity> List<T> getAll(Class<T> clazz, String orderByClause) {
+        emBegin(clazz);
+        TypedQuery<T> query = EM_CONTEXT.get().createQuery(
                 "SELECT c FROM Object c WHERE c instanceof " + clazz.getSimpleName(),
                 clazz);
+        emEnd();
         return query.getResultList();
     }
 
@@ -706,9 +568,10 @@ public final class SpaceV2 {
      * @param someStringUidJPAViaAnnotationsDescribed
      * @return
      */
-    public <T> T get(Class<T> clazz, String someStringUidJPAViaAnnotationsDescribed) {
-        EntityManager em = em(clazz, false);
-        T fullObject = em.find(clazz, someStringUidJPAViaAnnotationsDescribed);
+    public <T extends IV2Entity> T get(Class<T> clazz, String someStringUidJPAViaAnnotationsDescribed) {
+        emBegin(clazz);
+        T fullObject = EM_CONTEXT.get().find(clazz, someStringUidJPAViaAnnotationsDescribed);
+        emEnd();
         return fullObject;
     }
 
@@ -723,9 +586,10 @@ public final class SpaceV2 {
      * @param someStringUidJPAViaAnnotationsDescribed
      * @return
      */
-    public <T> T point(Class<T> clazz, String someStringUidJPAViaAnnotationsDescribed) {
-        EntityManager em = em(clazz, false);
-        T mayBeHollow = em.getReference(clazz, someStringUidJPAViaAnnotationsDescribed);
+    public <T extends IV2Entity> T point(Class<T> clazz, String someStringUidJPAViaAnnotationsDescribed) {
+        emBegin(clazz);
+        T mayBeHollow = EM_CONTEXT.get().getReference(clazz, someStringUidJPAViaAnnotationsDescribed);
+        emEnd();
         return mayBeHollow;
     }
 
@@ -736,9 +600,10 @@ public final class SpaceV2 {
      * @param someLongIdJPAViaAnnotationsDescribed
      * @return
      */
-    public <T> T get(Class<T> clazz, long someLongIdJPAViaAnnotationsDescribed) {
-        EntityManager em = em(clazz, false);
-        T fullObject = em.find(clazz, someLongIdJPAViaAnnotationsDescribed);
+    public <T extends IV2Entity> T get(Class<T> clazz, long someLongIdJPAViaAnnotationsDescribed) {
+        emBegin(clazz);
+        T fullObject = EM_CONTEXT.get().find(clazz, someLongIdJPAViaAnnotationsDescribed);
+        emEnd();
         return fullObject;
     }
 
@@ -752,9 +617,10 @@ public final class SpaceV2 {
      * @param someLongIdJPAViaAnnotationsDescribed
      * @return
      */
-    public <T> T point(Class<T> clazz, long someLongIdJPAViaAnnotationsDescribed) {
-        EntityManager em = em(clazz, false);
-        T mayBeHollow = em.getReference(clazz, someLongIdJPAViaAnnotationsDescribed);
+    public <T extends IV2Entity> T point(Class<T> clazz, long someLongIdJPAViaAnnotationsDescribed) {
+        emBegin(clazz);
+        T mayBeHollow = EM_CONTEXT.get().getReference(clazz, someLongIdJPAViaAnnotationsDescribed);
+        emEnd();
         return mayBeHollow;
     }
 
@@ -766,9 +632,10 @@ public final class SpaceV2 {
      * @param someIntIdJPAViaAnnotationsDescribed
      * @return
      */
-    public <T> T get(Class<T> clazz, int someIntIdJPAViaAnnotationsDescribed) {
-        EntityManager em = em(clazz, false);
-        T fullObject = em.find(clazz, someIntIdJPAViaAnnotationsDescribed);
+    public <T extends IV2Entity> T get(Class<T> clazz, int someIntIdJPAViaAnnotationsDescribed) {
+        emBegin(clazz);
+        T fullObject = EM_CONTEXT.get().find(clazz, someIntIdJPAViaAnnotationsDescribed);
+        emEnd();
         return fullObject;
     }
 
@@ -782,9 +649,10 @@ public final class SpaceV2 {
      * @param someIntIdJPAViaAnnotationsDescribed
      * @return
      */
-    public <T> T point(Class<T> clazz, int someIntIdJPAViaAnnotationsDescribed) {
-        EntityManager em = em(clazz, false);
-        T mayBeHollow = em.getReference(clazz, someIntIdJPAViaAnnotationsDescribed);
+    public <T extends IV2Entity> T point(Class<T> clazz, int someIntIdJPAViaAnnotationsDescribed) {
+        emBegin(clazz);
+        T mayBeHollow = EM_CONTEXT.get().getReference(clazz, someIntIdJPAViaAnnotationsDescribed);
+        emEnd();
         return mayBeHollow;
     }
 
@@ -797,12 +665,13 @@ public final class SpaceV2 {
      * @param orderByClause
      * @return
      */
-    public <T> List<T> findWhere(Class<T> clazz, String jpaclause, HashMap<String, String> params, String orderByClause) {
+    public <T extends IV2Entity> List<T> findWhere(Class<T> clazz, String jpaclause, HashMap<String, String> params, String orderByClause) {
+        emBegin(clazz);
         if (orderByClause == null) {
             orderByClause = "";
         }
-        TypedQuery<T> query = em(clazz, false).createQuery(
-                "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + " " + orderByClause,
+        TypedQuery<T> query = EM_CONTEXT.get().createQuery(
+                "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + orderByClause,
                 clazz);
         if (params != null) {
             for (Map.Entry<String, String> entry : params.entrySet()) {
@@ -811,6 +680,7 @@ public final class SpaceV2 {
                 query.setParameter(key, value);
             }
         }
+        emEnd();
         return query.getResultList();
     }
 
@@ -823,8 +693,9 @@ public final class SpaceV2 {
      * @param orderByClause
      * @return
      */
-    public <T> T findWhereSingle(Class<T> clazz, String jpaclause, HashMap<String, String> params, String orderByClause) {
-        TypedQuery<T> query = em(clazz, false).createQuery(
+    public <T extends IV2Entity> T findWhereSingle(Class<T> clazz, String jpaclause, HashMap<String, String> params, String orderByClause) {
+        emBegin(clazz);
+        TypedQuery<T> query = EM_CONTEXT.get().createQuery(
                 "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + orderByClause,
                 clazz);
         if (params != null) {
@@ -834,6 +705,7 @@ public final class SpaceV2 {
                 query.setParameter(key, value);
             }
         }
+        emEnd();
         return query.getSingleResult();
     }
 
@@ -843,7 +715,7 @@ public final class SpaceV2 {
      * @param clazz
      * @return
      */
-    public <T> List<T> getAll(Class<T> clazz) {
+    public <T extends IV2Entity> List<T> getAll(Class<T> clazz) {
         return getAll(clazz, null);
     }
 
@@ -855,7 +727,7 @@ public final class SpaceV2 {
      * @param params
      * @return
      */
-    public <T> List<T> findWhere(Class<T> clazz, String jpaclause, HashMap<String, String> params) {
+    public <T extends IV2Entity> List<T> findWhere(Class<T> clazz, String jpaclause, HashMap<String, String> params) {
         return findWhere(clazz, jpaclause, params, null);
     }
 
@@ -867,34 +739,34 @@ public final class SpaceV2 {
      * @param params
      * @return
      */
-    public <T> T findWhereSingle(Class<T> clazz, String jpaclause, HashMap<String, String> params) {
+    public <T extends IV2Entity> T findWhereSingle(Class<T> clazz, String jpaclause, HashMap<String, String> params) {
         return findWhereSingle(clazz, jpaclause, params, null);
     }
 
     // ========================================================================
     // PUBLIC API Retrieval (SCRIPTED and backward compatible with SpaceX and HibernationProject)
     // =====================
-    public <T> List<T> findAll_MULTILIKE_restricted(Class<T> clazz, String[] names, String[] values, int comp) {
+    public <T extends IV2Entity> List<T> findAll_MULTILIKE_restricted(Class<T> clazz, String[] names, String[] values, int comp) {
         return findAll_MULTILIKE_restricted(false, null, clazz, names, values, comp);
     }
 
-    public <T> List<T> findAll_MATCH(Class<T> clazz, String name, String value, int comp) {
+    public <T extends IV2Entity> List<T> findAll_MATCH(Class<T> clazz, String name, String value, int comp) {
         return findAll_MATCH(false, null, clazz, name, value, comp);
     }
 
-    public <T> List<T> findAll_MATCH_INTEGERANDSTRING(Class<T> clazz, String name, String value, String intName, int intValue) {
+    public <T extends IV2Entity> List<T> findAll_MATCH_INTEGERANDSTRING(Class<T> clazz, String name, String value, String intName, int intValue) {
         return findAll_MATCH_INTEGERANDSTRING(false, null, clazz, name, value, intName, intValue);
     }
 
-    public <T> List<T> findAll_LIKE(Class<T> clazz, String name, String likeValue, int comp) {
+    public <T extends IV2Entity> List<T> findAll_LIKE(Class<T> clazz, String name, String likeValue, int comp) {
         return findAll_LIKE(false, null, clazz, name, likeValue, comp);
     }
 
-    public <T> List<T> findAll_TIME_MATCH(Class<T> clazz, String name, String value, int comp, String timeName, long from, long to) {
+    public <T extends IV2Entity> List<T> findAll_TIME_MATCH(Class<T> clazz, String name, String value, int comp, String timeName, long from, long to) {
         return findAll_TIME_MATCH(false, null, clazz, name, value, comp, timeName, from, to);
     }
 
-    public <T> List<T> findAll_MULTILIKE_restricted(boolean sortOrder, String sortField, Class<T> clazz, String[] names, String[] values, int comp) {
+    public <T extends IV2Entity> List<T> findAll_MULTILIKE_restricted(boolean sortOrder, String sortField, Class<T> clazz, String[] names, String[] values, int comp) {
         String no = "LIKE";
         if (comp != 0) {
             no = "NOT LIKE";
@@ -920,7 +792,7 @@ public final class SpaceV2 {
         }
     }
 
-    public <T> List<T> findAll_MATCH(boolean sortOrder, String sortField, Class<T> clazz, String name, String value, int comp) {
+    public <T extends IV2Entity> List<T> findAll_MATCH(boolean sortOrder, String sortField, Class<T> clazz, String name, String value, int comp) {
         if (sortField != null) {
             String so = "asc";
             if (sortOrder) {
@@ -940,7 +812,7 @@ public final class SpaceV2 {
         }
     }
 
-    public <T> List<T> findAll_MATCH_INTEGERANDSTRING(boolean sortOrder, String sortField, Class<T> clazz, String name, String value, String intName, int intValue) {
+    public <T extends IV2Entity> List<T> findAll_MATCH_INTEGERANDSTRING(boolean sortOrder, String sortField, Class<T> clazz, String name, String value, String intName, int intValue) {
         if (sortField != null) {
             String so = "asc";
             if (sortOrder) {
@@ -952,7 +824,7 @@ public final class SpaceV2 {
         }
     }
 
-    public <T> List<T> findAll_LIKE(boolean sortOrder, String sortField, Class<T> clazz, String name, String likeValue, int comp) {
+    public <T extends IV2Entity> List<T> findAll_LIKE(boolean sortOrder, String sortField, Class<T> clazz, String name, String likeValue, int comp) {
         if (sortField != null) {
             String so = "asc";
             if (sortOrder) {
@@ -972,7 +844,7 @@ public final class SpaceV2 {
         }
     }
 
-    public <T> List<T> findAll_TIME_MATCH(boolean sortOrder, String sortField, Class<T> clazz, String name, String value, int comp, String timeName, long from, long to) {
+    public <T extends IV2Entity> List<T> findAll_TIME_MATCH(boolean sortOrder, String sortField, Class<T> clazz, String name, String value, int comp, String timeName, long from, long to) {
         if (sortField != null) {
             String so = "asc";
             if (sortOrder) {
@@ -990,9 +862,9 @@ public final class SpaceV2 {
             if (sortOrder) {
                 so = "desc";
             }
-            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to +"L", null, "order by c." + sortField + " " + so);
+            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to, null, "order by c." + sortField + " " + so);
         } else {
-            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to +"L", null);
+            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to, null);
         }
     }
 }

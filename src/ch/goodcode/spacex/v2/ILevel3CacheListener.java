@@ -14,7 +14,7 @@ import java.util.List;
  * @author Paolo
  * @param <T>
  */
-public interface ILevel3Updatable<T> extends Serializable {
+public interface ILevel3CacheListener<T extends IV2Entity> extends Serializable {
     
     /**
      * 
@@ -51,4 +51,10 @@ public interface ILevel3Updatable<T> extends Serializable {
      * @param objects 
      */
     public void delete(List<T> objects);
+    
+    /**
+     * 
+     * @return 
+     */
+    public boolean deferredProcessing();
 }

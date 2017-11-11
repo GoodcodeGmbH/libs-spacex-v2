@@ -339,7 +339,7 @@ public final class SpaceV2_RD {
         }
     }
 
-    private final HashMap<String, ILevel3Updatable<?>> LEVEL3CACHELISTENERS = new HashMap<>();
+    private final HashMap<String, ILevel3CacheListener<?>> LEVEL3CACHELISTENERS = new HashMap<>();
 
     /**
      *
@@ -347,35 +347,35 @@ public final class SpaceV2_RD {
      * @param clazz
      * @param aLevel3CacheListener
      */
-    public <T> void registerL3CacheListener(Class<T> clazz, ILevel3Updatable<T> aLevel3CacheListener) {
+    public <T> void registerL3CacheListener(Class<T> clazz, ILevel3CacheListener<T> aLevel3CacheListener) {
         LEVEL3CACHELISTENERS.put(clazz.getSimpleName(), aLevel3CacheListener);
     }
 
     private <T> void createForCacheListeners(T object) {
         final String name = object.getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name)).create(object);
+            ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name)).create(object);
         }
     }
 
     private <T> void updateForCacheListeners(T object) {
         final String name = object.getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name)).update(object);
+            ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name)).update(object);
         }
     }
 
     private <T> void deleteForCacheListeners(T object) {
         final String name = object.getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name)).delete(object);
+            ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name)).delete(object);
         }
     }
 
     private <T> void createForCacheListeners(List<T> objects) {
         final String name = objects.get(0).getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ILevel3Updatable<T> c = ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name));
+            ILevel3CacheListener<T> c = ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name));
             c.create(objects);
         }
     }
@@ -383,7 +383,7 @@ public final class SpaceV2_RD {
     private <T> void updateForCacheListeners(List<T> objects) {
         final String name = objects.get(0).getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ILevel3Updatable<T> c = ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name));
+            ILevel3CacheListener<T> c = ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name));
             c.update(objects);
         }
     }
@@ -391,7 +391,7 @@ public final class SpaceV2_RD {
     private <T> void deleteForCacheListeners(List<T> objects) {
         final String name = objects.get(0).getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ILevel3Updatable<T> c = ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name));
+            ILevel3CacheListener<T> c = ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name));
             c.delete(objects);
         }
     }

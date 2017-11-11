@@ -150,8 +150,9 @@ public final class SpaceV2 {
 
             mainEMF = Persistence.createEntityManagerFactory(
                     optHostFull);
+            ems.put(0L, mainEMF.createEntityManager());
 
-            LOG.o("Mod0 (debug) detected: main ef only with path " + optHostFull);
+            LOG.o("Mod0 (debug) UUAAAARGH DEBUG detected: main ef only with path " + optHostFull);
 
         } else if (odbConf == null) {
 
@@ -264,13 +265,13 @@ public final class SpaceV2 {
         }
 
         if (IS_REAL_SPACE) {
-            LOG.o("SV2 full instance '" + myId + " with its Space has properly started. Have a nice day.");
+            LOG.o("SV2 full instance '" + myId + "' with its Space has properly started. Have a nice day.");
         } else {
-            LOG.o("SV2 instance '" + myId + " has properly started. Have a nice day.");
+            LOG.o("SV2 instance '" + myId + "' has properly started. Have a nice day.");
         }
     }
 
-    private final HashMap<String, ILevel3Updatable<?>> LEVEL3CACHELISTENERS = new HashMap<>();
+    private final HashMap<String, ILevel3CacheListener<?>> LEVEL3CACHELISTENERS = new HashMap<>();
 
     /**
      *
@@ -278,35 +279,35 @@ public final class SpaceV2 {
      * @param clazz
      * @param aLevel3CacheListener
      */
-    public <T> void registerL3CacheListener(Class<T> clazz, ILevel3Updatable<T> aLevel3CacheListener) {
+    public <T> void registerL3CacheListener(Class<T> clazz, ILevel3CacheListener<T> aLevel3CacheListener) {
         LEVEL3CACHELISTENERS.put(clazz.getSimpleName(), aLevel3CacheListener);
     }
 
     private <T> void createForCacheListeners(T object) {
         final String name = object.getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name)).create(object);
+            ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name)).create(object);
         }
     }
 
     private <T> void updateForCacheListeners(T object) {
         final String name = object.getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name)).update(object);
+            ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name)).update(object);
         }
     }
 
     private <T> void deleteForCacheListeners(T object) {
         final String name = object.getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name)).delete(object);
+            ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name)).delete(object);
         }
     }
 
     private <T> void createForCacheListeners(List<T> objects) {
         final String name = objects.get(0).getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ILevel3Updatable<T> c = ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name));
+            ILevel3CacheListener<T> c = ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name));
             c.create(objects);
         }
     }
@@ -314,7 +315,7 @@ public final class SpaceV2 {
     private <T> void updateForCacheListeners(List<T> objects) {
         final String name = objects.get(0).getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ILevel3Updatable<T> c = ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name));
+            ILevel3CacheListener<T> c = ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name));
             c.update(objects);
         }
     }
@@ -322,7 +323,7 @@ public final class SpaceV2 {
     private <T> void deleteForCacheListeners(List<T> objects) {
         final String name = objects.get(0).getClass().getSimpleName();
         if (LEVEL3CACHELISTENERS.containsKey(name)) {
-            ILevel3Updatable<T> c = ((ILevel3Updatable<T>) LEVEL3CACHELISTENERS.get(name));
+            ILevel3CacheListener<T> c = ((ILevel3CacheListener<T>) LEVEL3CACHELISTENERS.get(name));
             c.delete(objects);
         }
     }
@@ -349,9 +350,9 @@ public final class SpaceV2 {
         LOG.o("Stopped SV2 '" + myId + "', goodbye.");
         LOG.s();
     }
-    
+
     private synchronized <T> EntityManager em(Class<T> clazz, boolean write) {
-        if(!IS_REAL_SPACE) {
+        if (!IS_REAL_SPACE) {
             return emLocalOnly(Thread.currentThread(), clazz);
         } else {
             return emRealSpace(Thread.currentThread(), clazz, write);
@@ -359,43 +360,44 @@ public final class SpaceV2 {
     }
 
     private <T> EntityManager emLocalOnly(Thread currentThread, Class<T> clazz) {
-        if (false) {
-            return null; // <<-- in token processing...
-        } else {
-            if (emsC > EM_PURGE_LIMIT) {
-                emsC = 0L;
-                (new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        long now = System.currentTimeMillis();
-                        ArrayList<Long> tbDelTids = new ArrayList<>();
-                        for (Map.Entry<Long, Long> entry : emsT.entrySet()) {
-                            Long tid = entry.getKey();
-                            Long lasrtSeen = entry.getValue();
-                            if (now - lasrtSeen > EM_PURGE_TIMEOUT) {
-                                tbDelTids.add(tid);
-                            }
-                        }
-                        for (Long threadID : tbDelTids) {
-                            ems.remove(threadID);
-                            emsT.remove(threadID);
-                        }
-                    }
-                })).start();
-            }
-            if (!ems.containsKey(currentThread.getId())) {
-                if (emfsMAP.containsKey(clazz.getSimpleName())) {
-                    ems.put(currentThread.getId(), emfsMAP.get(clazz.getSimpleName()).createEntityManager());
-                } else {
-                    ems.put(currentThread.getId(), mainEMF.createEntityManager());
-                }
-                emsC++;
-            }
-            emsT.put(currentThread.getId(), System.currentTimeMillis());
-            return ems.get(currentThread.getId());
-        }
+        return ems.get(0L);
+//        if (false) {
+//            return null; // <<-- in token processing...
+//        } else {
+//            if (emsC > EM_PURGE_LIMIT) {
+//                emsC = 0L;
+//                (new Thread(new Runnable() {
+//                    @Override
+//                    public void run() {
+//                        long now = System.currentTimeMillis();
+//                        ArrayList<Long> tbDelTids = new ArrayList<>();
+//                        for (Map.Entry<Long, Long> entry : emsT.entrySet()) {
+//                            Long tid = entry.getKey();
+//                            Long lasrtSeen = entry.getValue();
+//                            if (now - lasrtSeen > EM_PURGE_TIMEOUT) {
+//                                tbDelTids.add(tid);
+//                            }
+//                        }
+//                        for (Long threadID : tbDelTids) {
+//                            ems.remove(threadID);
+//                            emsT.remove(threadID);
+//                        }
+//                    }
+//                })).start();
+//            }
+//            if (!ems.containsKey(currentThread.getId())) {
+//                if (emfsMAP.containsKey(clazz.getSimpleName())) {
+//                    ems.put(currentThread.getId(), emfsMAP.get(clazz.getSimpleName()).createEntityManager());
+//                } else {
+//                    ems.put(currentThread.getId(), mainEMF.createEntityManager());
+//                }
+//                emsC++;
+//            }
+//            emsT.put(currentThread.getId(), System.currentTimeMillis());
+//            return ems.get(currentThread.getId());
+//        }
     }
-    
+
     private <T> EntityManager emRealSpace(Thread currentThread, Class<T> clazz, boolean write) {
         return null;
     }
@@ -427,7 +429,7 @@ public final class SpaceV2 {
      * @param <T>
      * @param item
      */
-    public <T> void create(T item) {
+    public synchronized <T> void create(T item) {
         EntityManager em = em(item.getClass(), true);
         try {
             if (em != null) {
@@ -454,7 +456,7 @@ public final class SpaceV2 {
      * @param <T>
      * @param item
      */
-    public <T> void update(T item) {
+    public synchronized <T> void update(T item) {
         EntityManager em = em(item.getClass(), true);
         try {
             if (em != null) {
@@ -481,7 +483,7 @@ public final class SpaceV2 {
      * @param <T>
      * @param item
      */
-    public <T> void delete(T item) {
+    public synchronized <T> void delete(T item) {
         EntityManager em = em(item.getClass(), true);
         try {
             if (em != null) {
@@ -642,10 +644,9 @@ public final class SpaceV2 {
     /**
      *
      * @param key a RegVar mapping key
-     * @return the value of the registered RegVar, or null if one of those 3 is met:
-     * - the key doesn't exist
-     * - the RegVar itself is null (? rare, only a bug rises that)
-     * - the value for the existing key is really null
+     * @return the value of the registered RegVar, or null if one of those 3 is
+     * met: - the key doesn't exist - the RegVar itself is null (? rare, only a
+     * bug rises that) - the value for the existing key is really null
      */
     public String readRegVar(String key) {
         if (key != null) {
@@ -801,7 +802,7 @@ public final class SpaceV2 {
             orderByClause = "";
         }
         TypedQuery<T> query = em(clazz, false).createQuery(
-                "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + orderByClause,
+                "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + " " + orderByClause,
                 clazz);
         if (params != null) {
             for (Map.Entry<String, String> entry : params.entrySet()) {
@@ -989,10 +990,9 @@ public final class SpaceV2 {
             if (sortOrder) {
                 so = "desc";
             }
-            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to, null, "order by c." + sortField + " " + so);
+            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to +"L", null, "order by c." + sortField + " " + so);
         } else {
-            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to, null);
+            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to +"L", null);
         }
     }
 }
-
