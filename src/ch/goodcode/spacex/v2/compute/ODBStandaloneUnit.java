@@ -6,6 +6,7 @@
 package ch.goodcode.spacex.v2.compute;
 
 import ch.goodcode.libs.utils.dataspecs.EJSONObject;
+import javax.persistence.EntityManager;
 
 /**
  *
@@ -25,6 +26,8 @@ public class ODBStandaloneUnit extends ObjectDBUnit {
 
     @Override
     public void initialize() {
+        // standalone unit may only be initialized as
+        // web services using a local or remote hotst:port.
         throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
     }
 
@@ -35,6 +38,11 @@ public class ODBStandaloneUnit extends ObjectDBUnit {
 
     @Override
     protected void postDispose() {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+
+    @Override
+    public <T> EntityManager em(Class<T> clazz) {
         throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
     }
 }

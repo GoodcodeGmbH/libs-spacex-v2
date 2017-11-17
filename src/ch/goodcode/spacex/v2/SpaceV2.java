@@ -13,7 +13,6 @@ import ch.goodcode.libs.utils.dataspecs.EJSONObject;
 import ch.goodcode.spacex.v2.compute.ODBEmbeddedUnit;
 import ch.goodcode.spacex.v2.compute.ObjectDBUnit;
 import ch.goodcode.spacex.v2.compute.RegVar;
-import ch.goodcode.spacex.v2.compute.ResultsThreadContext;
 import java.io.File;
 import java.util.HashMap;
 import java.util.List;
@@ -32,7 +31,6 @@ public final class SpaceV2 {
     public static final int EM_PURGE_LIMIT = 50;
     public static final long EM_PURGE_TIMEOUT = 20 * GOOUtils.TIME_MINUTES;
     private static final int MAGIC_BATCH_DIVISOR = 20_000;
-    private static final String MAIN_UNIT_IDENTIFIER = "MAIN";
 
     //-
     private final String MY_ID;
@@ -40,13 +38,12 @@ public final class SpaceV2 {
     // -
     private final ThreadManager TM = new ThreadManager(1, 100);
     private final ThreadLocal<EntityManager> EM_CONTEXT = new ThreadLocal<>();
-    private final ThreadLocal<ResultsThreadContext<? extends IV2Entity>> RESULTS_CONTEXT = new ThreadLocal<>(); // not used yet!
 
     //-
     private LogBuffer LOG;
     private final String optHostFull;
     private String optUser, optPass;
-    private final HashMap<String, ObjectDBUnit> ODBUNITS = new HashMap<>();
+    private ObjectDBUnit ODBUNIT;
 
     // -
     private final EJSONObject odbConf;
@@ -137,9 +134,8 @@ public final class SpaceV2 {
             // DEBUG setup (uses default config in odb root folder)
             // no units are space
             // here odb limits apply (10 clazzes, 10^6 entities per clazz)
-            ODBEmbeddedUnit embedded = new ODBEmbeddedUnit(optHostFull);
-            ODBUNITS.put(MAIN_UNIT_IDENTIFIER, embedded);
-            embedded.initialize();
+            ODBUNIT = new ODBEmbeddedUnit(optHostFull);
+            ODBUNIT.initialize();
             LOG.o("Mod0 (debug) detected: main ef only with path " + optHostFull);
 
         } else if (odbConf == null) {
@@ -147,9 +143,8 @@ public final class SpaceV2 {
             // DEBUG setup (uses default config in odb root folder)
             // no units are space
             // here odb limits apply (10 clazzes, 10^6 entities per clazz)
-            ODBEmbeddedUnit embedded = new ODBEmbeddedUnit(optHostFull, optUser, optPass);
-            ODBUNITS.put(MAIN_UNIT_IDENTIFIER, embedded);
-            embedded.initialize();
+            ODBUNIT = new ODBEmbeddedUnit(optHostFull, optUser, optPass);
+            ODBUNIT.initialize();
             LOG.o("Mod1 ('configless', debug) detected: main ef only with path " + optHostFull + " and user access");
 
         } else {
@@ -264,18 +259,13 @@ public final class SpaceV2 {
      */
     public void stop() throws Exception {
         LOG.o("Now stopping SV2 '" + MY_ID + "'...");
-        for (Map.Entry<String, ObjectDBUnit> entry : ODBUNITS.entrySet()) {
-            ObjectDBUnit value = entry.getValue();
-            value.dispose();
-        }
-        ODBUNITS.clear();
+        ODBUNIT.dispose();
         LOG.o("Stopped SV2 '" + MY_ID + "', goodbye.");
         LOG.s();
     }
 
     private <T extends IV2Entity> void emBegin(Class<T> clazz) {
-        // TODO...
-        EntityManager found = null;
+        EntityManager found = ODBUNIT.em(clazz);
         EM_CONTEXT.set(found);
     }
 
@@ -551,11 +541,14 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> List<T> getAll(Class<T> clazz, String orderByClause) {
         emBegin(clazz);
-        TypedQuery<T> query = EM_CONTEXT.get().createQuery(
-                "SELECT c FROM Object c WHERE c instanceof " + clazz.getSimpleName(),
-                clazz);
-        emEnd();
-        return query.getResultList();
+        TypedQuery<T> query = null;
+        synchronized (query) {
+            query = EM_CONTEXT.get().createQuery(
+                    "SELECT c FROM Object c WHERE c instanceof " + clazz.getSimpleName(),
+                    clazz);
+            emEnd();
+            return query.getResultList();
+        }
     }
 
     /**
@@ -570,9 +563,12 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T get(Class<T> clazz, String someStringUidJPAViaAnnotationsDescribed) {
         emBegin(clazz);
-        T fullObject = EM_CONTEXT.get().find(clazz, someStringUidJPAViaAnnotationsDescribed);
-        emEnd();
-        return fullObject;
+        T fullObject = null;
+        synchronized (fullObject) {
+            fullObject = EM_CONTEXT.get().find(clazz, someStringUidJPAViaAnnotationsDescribed);
+            emEnd();
+            return fullObject;
+        }
     }
 
     /**
@@ -588,9 +584,12 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T point(Class<T> clazz, String someStringUidJPAViaAnnotationsDescribed) {
         emBegin(clazz);
-        T mayBeHollow = EM_CONTEXT.get().getReference(clazz, someStringUidJPAViaAnnotationsDescribed);
-        emEnd();
-        return mayBeHollow;
+        T mayBeHollow = null;
+        synchronized (mayBeHollow) {
+            mayBeHollow = EM_CONTEXT.get().getReference(clazz, someStringUidJPAViaAnnotationsDescribed);
+            emEnd();
+            return mayBeHollow;
+        }
     }
 
     /**
@@ -602,9 +601,12 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T get(Class<T> clazz, long someLongIdJPAViaAnnotationsDescribed) {
         emBegin(clazz);
-        T fullObject = EM_CONTEXT.get().find(clazz, someLongIdJPAViaAnnotationsDescribed);
-        emEnd();
-        return fullObject;
+        T fullObject = null;
+        synchronized (fullObject) {
+            fullObject = EM_CONTEXT.get().find(clazz, someLongIdJPAViaAnnotationsDescribed);
+            emEnd();
+            return fullObject;
+        }
     }
 
     /**
@@ -619,9 +621,12 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T point(Class<T> clazz, long someLongIdJPAViaAnnotationsDescribed) {
         emBegin(clazz);
-        T mayBeHollow = EM_CONTEXT.get().getReference(clazz, someLongIdJPAViaAnnotationsDescribed);
-        emEnd();
-        return mayBeHollow;
+        T mayBeHollow = null;
+        synchronized (mayBeHollow) {
+            mayBeHollow = EM_CONTEXT.get().getReference(clazz, someLongIdJPAViaAnnotationsDescribed);
+            emEnd();
+            return mayBeHollow;
+        }
     }
 
     /**
@@ -634,9 +639,12 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T get(Class<T> clazz, int someIntIdJPAViaAnnotationsDescribed) {
         emBegin(clazz);
-        T fullObject = EM_CONTEXT.get().find(clazz, someIntIdJPAViaAnnotationsDescribed);
-        emEnd();
-        return fullObject;
+        T fullObject = null;
+        synchronized (fullObject) {
+            fullObject = EM_CONTEXT.get().find(clazz, someIntIdJPAViaAnnotationsDescribed);
+            emEnd();
+            return fullObject;
+        }
     }
 
     /**
@@ -651,9 +659,12 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T point(Class<T> clazz, int someIntIdJPAViaAnnotationsDescribed) {
         emBegin(clazz);
-        T mayBeHollow = EM_CONTEXT.get().getReference(clazz, someIntIdJPAViaAnnotationsDescribed);
-        emEnd();
-        return mayBeHollow;
+        T mayBeHollow = null;
+        synchronized (mayBeHollow) {
+            mayBeHollow = EM_CONTEXT.get().getReference(clazz, someIntIdJPAViaAnnotationsDescribed);
+            emEnd();
+            return mayBeHollow;
+        }
     }
 
     /**
@@ -670,18 +681,21 @@ public final class SpaceV2 {
         if (orderByClause == null) {
             orderByClause = "";
         }
-        TypedQuery<T> query = EM_CONTEXT.get().createQuery(
-                "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + orderByClause,
-                clazz);
-        if (params != null) {
-            for (Map.Entry<String, String> entry : params.entrySet()) {
-                String key = entry.getKey();
-                String value = entry.getValue();
-                query.setParameter(key, value);
+        TypedQuery<T> query = null;
+        synchronized (query) {
+            query = EM_CONTEXT.get().createQuery(
+                    "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + orderByClause,
+                    clazz);
+            if (params != null) {
+                for (Map.Entry<String, String> entry : params.entrySet()) {
+                    String key = entry.getKey();
+                    String value = entry.getValue();
+                    query.setParameter(key, value);
+                }
             }
+            emEnd();
+            return query.getResultList();
         }
-        emEnd();
-        return query.getResultList();
     }
 
     /**
@@ -695,18 +709,21 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T findWhereSingle(Class<T> clazz, String jpaclause, HashMap<String, String> params, String orderByClause) {
         emBegin(clazz);
-        TypedQuery<T> query = EM_CONTEXT.get().createQuery(
-                "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + orderByClause,
-                clazz);
-        if (params != null) {
-            for (Map.Entry<String, String> entry : params.entrySet()) {
-                String key = entry.getKey();
-                String value = entry.getValue();
-                query.setParameter(key, value);
+        TypedQuery<T> query = null;
+        synchronized (query) {
+            query = EM_CONTEXT.get().createQuery(
+                    "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + orderByClause,
+                    clazz);
+            if (params != null) {
+                for (Map.Entry<String, String> entry : params.entrySet()) {
+                    String key = entry.getKey();
+                    String value = entry.getValue();
+                    query.setParameter(key, value);
+                }
             }
+            emEnd();
+            return query.getSingleResult();
         }
-        emEnd();
-        return query.getSingleResult();
     }
 
     /**

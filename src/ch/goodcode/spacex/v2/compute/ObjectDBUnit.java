@@ -5,11 +5,7 @@
  */
 package ch.goodcode.spacex.v2.compute;
 
-import ch.goodcode.spacex.v2.SpaceV2;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
 
@@ -20,7 +16,10 @@ import javax.persistence.EntityManagerFactory;
 public abstract class ObjectDBUnit {
 
     protected EntityManagerFactory EMF;
-    protected final HashMap<String, EntityManager> ems = new HashMap<>();
+    // Attention: each one of this holds max 10 entity types 
+    // 10^6 entities for each type (max. 10^7 entities)
+    
+    protected final HashMap<String, ObjectDBUnit> KIDS = new HashMap<>();
 
     public abstract void initialize();
     protected abstract void preDispose();
@@ -30,22 +29,20 @@ public abstract class ObjectDBUnit {
      * 
      */
     public void dispose() {
+        KIDS.entrySet().forEach((entry) -> {
+            entry.getValue().dispose();
+        });
         preDispose();
-        for (Map.Entry<String, EntityManager> entry : ems.entrySet()) {
-            EntityManager value = entry.getValue();
-            value.clear();
-            value.close();
-        }
         EMF.close();
+        postDispose();
     }
 
     /**
-     * 
+     * The EM returned is already thread protected because it is 
+     * used through a ThreadLocal in SpaceV2.
      * @param <T>
      * @param clazz
      * @return 
      */
-    public <T> EntityManager em(Class<T> clazz) {
-       return ems.get(clazz.getName());
-    }
+    public abstract <T> EntityManager em(Class<T> clazz);
 }
