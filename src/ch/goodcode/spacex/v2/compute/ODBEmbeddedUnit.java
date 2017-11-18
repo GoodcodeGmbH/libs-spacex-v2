@@ -5,6 +5,7 @@
  */
 package ch.goodcode.spacex.v2.compute;
 
+import ch.goodcode.libs.utils.dataspecs.EJSONArray;
 import ch.goodcode.libs.utils.dataspecs.EJSONObject;
 import java.util.HashMap;
 import java.util.Map;
@@ -17,10 +18,18 @@ import javax.persistence.Persistence;
  */
 public class ODBEmbeddedUnit extends ObjectDBUnit {
 
+    private static final String DEBUG_KEY = "DEBUG";
+
     private final boolean debug;
     private final String optHostFull;
     private final String optUser, optPass;
-    private final EJSONObject config;
+
+    protected ODBEmbeddedUnit() {
+        this.optHostFull = null;
+        this.optUser = null;
+        this.optPass = null;
+        this.debug = true;
+    }
 
     /**
      * *** FOR DEBUG ***
@@ -32,7 +41,6 @@ public class ODBEmbeddedUnit extends ObjectDBUnit {
         this.optUser = null;
         this.optPass = null;
         this.debug = true;
-        this.config = null;
     }
 
     /**
@@ -47,7 +55,6 @@ public class ODBEmbeddedUnit extends ObjectDBUnit {
         this.optUser = optUser;
         this.optPass = optPass;
         this.debug = true;
-        this.config = null;
     }
 
     /**
@@ -60,7 +67,32 @@ public class ODBEmbeddedUnit extends ObjectDBUnit {
         this.optUser = unitConf.getString("user");
         this.optPass = unitConf.getString("password");
         this.debug = false;
-        this.config = unitConf;
+
+        // TODO meta entities handling/setup
+        // ...
+        // entities setup (virtual tables)
+        EJSONArray array = unitConf.getArray("types");
+        int size = array.size();
+        if (size < (11 - 1)) {
+            for (int i = 0; i < size; i++) {
+                EJSONObject object = array.getObject(i);
+                boolean segmented = object.getBoolean("segmented");
+                if (!segmented) {
+                    EMS.put(object.getString("clazz"), null);
+                } else {
+                    // TODO (means > 10^6 items / table)
+                    // initially 2 layers are built (10^(6+2) items / virtual table)
+
+                }
+            }
+        } else {
+            // TODO
+            int blocks = (size / 10) + 1; // this is always >= 2
+            for (int i = 0; i < blocks; i++) {
+                ODBEmbeddedUnit u = new ODBEmbeddedUnit(optHostFull, optUser, optPass);
+            }
+            int r = (size % 10) + 1;
+        }
     }
 
     @Override
@@ -68,7 +100,9 @@ public class ODBEmbeddedUnit extends ObjectDBUnit {
         if (debug) {
             if (optUser == null) {
                 // a single default embedded EMF with odb file
+                // without credentials (attention).
                 EMF = Persistence.createEntityManagerFactory(optHostFull);
+                EMS.put(DEBUG_KEY, EMF.createEntityManager());
             } else {
                 // this is exceptional if optHostfull is a network location, embedded unit shall never be initialized
                 // as net services on a local port, but only with odb files instead.
@@ -77,6 +111,7 @@ public class ODBEmbeddedUnit extends ObjectDBUnit {
                 properties.put("javax.persistence.jdbc.user", optUser);
                 properties.put("javax.persistence.jdbc.password", optPass);
                 EMF = Persistence.createEntityManagerFactory(optHostFull, properties);
+                EMS.put(DEBUG_KEY, EMF.createEntityManager());
             }
         } else {
             // the main emf is used for regvars, and other ev. meta entities
@@ -85,10 +120,10 @@ public class ODBEmbeddedUnit extends ObjectDBUnit {
             Map<String, String> properties = new HashMap<>();
             properties.put("javax.persistence.jdbc.user", optUser);
             properties.put("javax.persistence.jdbc.password", optPass);
-            
-            // TODO ...
-            // ...
-            
+
+            EMS.entrySet().stream().map((entry) -> entry.getKey()).forEachOrdered((key) -> {
+                EMS.put(key, EMF.createEntityManager());
+            });
         }
 
     }
@@ -105,7 +140,15 @@ public class ODBEmbeddedUnit extends ObjectDBUnit {
 
     @Override
     public <T> EntityManager em(Class<T> clazz) {
-        return null;
+        if (debug) {
+            return EMS.get(DEBUG_KEY);
+        } else {
+            return null; // TODO
+        }
+    }
+
+    public boolean isDebug() {
+        return debug;
     }
 
 }

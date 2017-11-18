@@ -16,6 +16,7 @@ import javax.persistence.EntityManagerFactory;
 public abstract class ObjectDBUnit {
 
     protected EntityManagerFactory EMF;
+    protected final HashMap<String, EntityManager> EMS = new HashMap<>();
     // Attention: each one of this holds max 10 entity types 
     // 10^6 entities for each type (max. 10^7 entities)
     
@@ -35,6 +36,14 @@ public abstract class ObjectDBUnit {
         preDispose();
         EMF.close();
         postDispose();
+    }
+    
+    protected void setKid(String key, ObjectDBUnit u) {
+        KIDS.put(key, u);
+    }
+    
+    protected void putEm(String key, EntityManager em) {
+        EMS.put(key, em);
     }
 
     /**

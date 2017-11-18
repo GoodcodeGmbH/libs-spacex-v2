@@ -113,10 +113,6 @@ public final class SpaceV2 {
         this(uid, logPath, logLevel, "$objectdb/db/debug_" + debugId + ".odb");
     }
 
-    private boolean isDebug() {
-        return optUser == null || odbConf == null;
-    }
-
     public String geSpaceId() {
         return MY_ID;
     }
@@ -541,11 +537,14 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> List<T> getAll(Class<T> clazz, String orderByClause) {
         emBegin(clazz);
-        TypedQuery<T> query = null;
+        if (orderByClause == null) {
+            orderByClause = "";
+        }
+        TypedQuery<T> query = EM_CONTEXT.get().createQuery(
+                "SELECT c FROM Object c WHERE c instanceof " + clazz.getSimpleName() + " " + orderByClause,
+                clazz);
         synchronized (query) {
-            query = EM_CONTEXT.get().createQuery(
-                    "SELECT c FROM Object c WHERE c instanceof " + clazz.getSimpleName(),
-                    clazz);
+
             emEnd();
             return query.getResultList();
         }
@@ -563,9 +562,9 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T get(Class<T> clazz, String someStringUidJPAViaAnnotationsDescribed) {
         emBegin(clazz);
-        T fullObject = null;
+        T fullObject = EM_CONTEXT.get().find(clazz, someStringUidJPAViaAnnotationsDescribed);
         synchronized (fullObject) {
-            fullObject = EM_CONTEXT.get().find(clazz, someStringUidJPAViaAnnotationsDescribed);
+
             emEnd();
             return fullObject;
         }
@@ -584,9 +583,9 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T point(Class<T> clazz, String someStringUidJPAViaAnnotationsDescribed) {
         emBegin(clazz);
-        T mayBeHollow = null;
+        T mayBeHollow = EM_CONTEXT.get().getReference(clazz, someStringUidJPAViaAnnotationsDescribed);
         synchronized (mayBeHollow) {
-            mayBeHollow = EM_CONTEXT.get().getReference(clazz, someStringUidJPAViaAnnotationsDescribed);
+
             emEnd();
             return mayBeHollow;
         }
@@ -601,9 +600,9 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T get(Class<T> clazz, long someLongIdJPAViaAnnotationsDescribed) {
         emBegin(clazz);
-        T fullObject = null;
+        T fullObject = EM_CONTEXT.get().find(clazz, someLongIdJPAViaAnnotationsDescribed);
         synchronized (fullObject) {
-            fullObject = EM_CONTEXT.get().find(clazz, someLongIdJPAViaAnnotationsDescribed);
+
             emEnd();
             return fullObject;
         }
@@ -621,9 +620,9 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T point(Class<T> clazz, long someLongIdJPAViaAnnotationsDescribed) {
         emBegin(clazz);
-        T mayBeHollow = null;
+        T mayBeHollow = EM_CONTEXT.get().getReference(clazz, someLongIdJPAViaAnnotationsDescribed);
         synchronized (mayBeHollow) {
-            mayBeHollow = EM_CONTEXT.get().getReference(clazz, someLongIdJPAViaAnnotationsDescribed);
+
             emEnd();
             return mayBeHollow;
         }
@@ -639,9 +638,9 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T get(Class<T> clazz, int someIntIdJPAViaAnnotationsDescribed) {
         emBegin(clazz);
-        T fullObject = null;
+        T fullObject = EM_CONTEXT.get().find(clazz, someIntIdJPAViaAnnotationsDescribed);
         synchronized (fullObject) {
-            fullObject = EM_CONTEXT.get().find(clazz, someIntIdJPAViaAnnotationsDescribed);
+
             emEnd();
             return fullObject;
         }
@@ -659,9 +658,9 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T point(Class<T> clazz, int someIntIdJPAViaAnnotationsDescribed) {
         emBegin(clazz);
-        T mayBeHollow = null;
+        T mayBeHollow = EM_CONTEXT.get().getReference(clazz, someIntIdJPAViaAnnotationsDescribed);
         synchronized (mayBeHollow) {
-            mayBeHollow = EM_CONTEXT.get().getReference(clazz, someIntIdJPAViaAnnotationsDescribed);
+
             emEnd();
             return mayBeHollow;
         }
@@ -681,11 +680,11 @@ public final class SpaceV2 {
         if (orderByClause == null) {
             orderByClause = "";
         }
-        TypedQuery<T> query = null;
+        TypedQuery<T> query = EM_CONTEXT.get().createQuery(
+                "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + " " + orderByClause,
+                clazz);
         synchronized (query) {
-            query = EM_CONTEXT.get().createQuery(
-                    "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + orderByClause,
-                    clazz);
+
             if (params != null) {
                 for (Map.Entry<String, String> entry : params.entrySet()) {
                     String key = entry.getKey();
@@ -709,11 +708,11 @@ public final class SpaceV2 {
      */
     public <T extends IV2Entity> T findWhereSingle(Class<T> clazz, String jpaclause, HashMap<String, String> params, String orderByClause) {
         emBegin(clazz);
-        TypedQuery<T> query = null;
+        TypedQuery<T> query = EM_CONTEXT.get().createQuery(
+                "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + " " + orderByClause,
+                clazz);
         synchronized (query) {
-            query = EM_CONTEXT.get().createQuery(
-                    "SELECT c FROM " + clazz.getSimpleName() + " c WHERE " + jpaclause + orderByClause,
-                    clazz);
+
             if (params != null) {
                 for (Map.Entry<String, String> entry : params.entrySet()) {
                     String key = entry.getKey();
@@ -879,9 +878,9 @@ public final class SpaceV2 {
             if (sortOrder) {
                 so = "desc";
             }
-            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to, null, "order by c." + sortField + " " + so);
+            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to + "L", null, "order by c." + sortField + " " + so);
         } else {
-            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to, null);
+            return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to + "L", null);
         }
     }
 }
