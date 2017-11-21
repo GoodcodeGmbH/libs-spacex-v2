@@ -43,7 +43,7 @@ public final class SpaceV2 {
     private LogBuffer LOG;
     private final String optHostFull;
     private String optUser, optPass;
-    private ObjectDBUnit ODBUNIT;
+    private ObjectDBUnit RU;
 
     // -
     private final EJSONObject odbConf;
@@ -130,8 +130,8 @@ public final class SpaceV2 {
             // DEBUG setup (uses default config in odb root folder)
             // no units are space
             // here odb limits apply (10 clazzes, 10^6 entities per clazz)
-            ODBUNIT = new ODBEmbeddedUnit(optHostFull);
-            ODBUNIT.initialize();
+            RU = new ODBEmbeddedUnit(optHostFull);
+            RU.initialize();
             LOG.o("Mod0 (debug) detected: main ef only with path " + optHostFull);
 
         } else if (odbConf == null) {
@@ -139,8 +139,8 @@ public final class SpaceV2 {
             // DEBUG setup (uses default config in odb root folder)
             // no units are space
             // here odb limits apply (10 clazzes, 10^6 entities per clazz)
-            ODBUNIT = new ODBEmbeddedUnit(optHostFull, optUser, optPass);
-            ODBUNIT.initialize();
+            RU = new ODBEmbeddedUnit(optHostFull, optUser, optPass);
+            RU.initialize();
             LOG.o("Mod1 ('configless', debug) detected: main ef only with path " + optHostFull + " and user access");
 
         } else {
@@ -148,6 +148,8 @@ public final class SpaceV2 {
             LOG.o("................... 100%: odb Config file(s) detected and properly parsed.");
             System.setProperty("objectdb.conf", "/my/objectdb.conf"); // TODO
             // TODO main emf must exist always, if not used it is a service local odb embedded runtime
+            RU = new ODBEmbeddedUnit("");
+            RU.initialize();
 
         }
 
@@ -255,13 +257,13 @@ public final class SpaceV2 {
      */
     public void stop() throws Exception {
         LOG.o("Now stopping SV2 '" + MY_ID + "'...");
-        ODBUNIT.dispose();
+        RU.dispose();
         LOG.o("Stopped SV2 '" + MY_ID + "', goodbye.");
         LOG.s();
     }
 
     private <T extends IV2Entity> void emBegin(Class<T> clazz) {
-        EntityManager found = ODBUNIT.em(clazz);
+        EntityManager found = RU.em(clazz);
         EM_CONTEXT.set(found);
     }
 
