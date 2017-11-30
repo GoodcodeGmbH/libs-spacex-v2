@@ -885,4 +885,25 @@ public final class SpaceV2 {
             return findWhere(clazz, "c." + timeName + " >= " + from + "L AND c." + timeName + " < " + to + "L", null);
         }
     }
+    
+    // ========================================================================
+    // PUBLIC SQL integrated APIs
+    // (TODO)
+    // =====================
+    public <T extends IV2Entity> List<T> sqlSELECT(Class<T> clazz) {
+        return null;
+    }
+    
+    public  String sqlINSERT() {
+        return null;
+    }
+    
+    public String sqlUPDATE() {
+        return null;
+    }
+    
+    public String sqlDELETE() {
+        return null;
+    }
+    
 }

@@ -16,13 +16,17 @@ import javax.persistence.Persistence;
  *
  * @author Paolo Domenighetti
  */
-public class ODBEmbeddedUnit extends ObjectDBUnit {
+public final class ODBEmbeddedUnit extends ObjectDBUnit {
 
     private static final String DEBUG_KEY = "DEBUG";
 
     private final boolean debug;
     private final String optHostFull;
     private final String optUser, optPass;
+
+    // multiblock params
+    private int blocks = 1;
+    private final HashMap<String, String> BLOCK_MAPPINGS = new HashMap<>();
 
     protected ODBEmbeddedUnit() {
         this.optHostFull = null;
@@ -87,9 +91,10 @@ public class ODBEmbeddedUnit extends ObjectDBUnit {
             }
         } else {
             // TODO
-            int blocks = (size / 10) + 1; // this is always >= 2
+            blocks = (size / 10) + 1; // this is always >= 2
             for (int i = 0; i < blocks; i++) {
                 ODBEmbeddedUnit u = new ODBEmbeddedUnit(optHostFull, optUser, optPass);
+                // TODO...
             }
             int r = (size % 10) + 1;
         }
@@ -117,13 +122,22 @@ public class ODBEmbeddedUnit extends ObjectDBUnit {
             // the main emf is used for regvars, and other ev. meta entities
             // also properties of the emf tree. The config file contains max items
             // per type so we can pre-compute the tree structure.
-            Map<String, String> properties = new HashMap<>();
-            properties.put("javax.persistence.jdbc.user", optUser);
-            properties.put("javax.persistence.jdbc.password", optPass);
 
-            EMS.entrySet().stream().map((entry) -> entry.getKey()).forEachOrdered((key) -> {
-                EMS.put(key, EMF.createEntityManager());
-            });
+            if (blocks > 1) {
+
+                for (int i = 0; i < blocks; i++) {
+                    ODBEmbeddedUnit u = new ODBEmbeddedUnit();
+                    KIDS.put("block" + i, u);
+                }
+
+            } else {
+                Map<String, String> properties = new HashMap<>();
+                properties.put("javax.persistence.jdbc.user", optUser);
+                properties.put("javax.persistence.jdbc.password", optPass);
+                EMS.entrySet().stream().map((entry) -> entry.getKey()).forEachOrdered((key) -> {
+                    EMS.put(key, EMF.createEntityManager());
+                });
+            }
         }
 
     }
@@ -143,7 +157,12 @@ public class ODBEmbeddedUnit extends ObjectDBUnit {
         if (debug) {
             return EMS.get(DEBUG_KEY);
         } else {
-            return null; // TODO
+            if (blocks > 1) {
+                final String kidKey = BLOCK_MAPPINGS.get(clazz.getName());
+                return KIDS.get(kidKey).em(clazz);
+            } else {
+                return EMS.get(clazz.getName());
+            }
         }
     }
 
