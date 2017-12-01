@@ -17,10 +17,11 @@ public abstract class ObjectDBUnit {
 
     protected EntityManagerFactory EMF;
     protected final HashMap<String, EntityManager> EMS = new HashMap<>();
-    // Attention: each one of this holds max 10 entity types 
+    // Attention: each one of this units holds max 10 entity types 
     // 10^6 entities for each type (max. 10^7 entities)
     
     protected final HashMap<String, ObjectDBUnit> KIDS = new HashMap<>();
+    protected final HashMap<String, String> BLOCK_MAPPINGS = new HashMap<>();
 
     public abstract void initialize();
     protected abstract void preDispose();
@@ -44,6 +45,10 @@ public abstract class ObjectDBUnit {
     
     protected void putEm(String key, EntityManager em) {
         EMS.put(key, em);
+    }
+    
+    protected boolean hasKids() {
+        return !KIDS.isEmpty();
     }
 
     /**

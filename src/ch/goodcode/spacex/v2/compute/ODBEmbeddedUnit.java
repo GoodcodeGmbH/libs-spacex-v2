@@ -24,10 +24,6 @@ public final class ODBEmbeddedUnit extends ObjectDBUnit {
     private final String optHostFull;
     private final String optUser, optPass;
 
-    // multiblock params
-    private int blocks = 1;
-    private final HashMap<String, String> BLOCK_MAPPINGS = new HashMap<>();
-
     protected ODBEmbeddedUnit() {
         this.optHostFull = null;
         this.optUser = null;
@@ -67,37 +63,33 @@ public final class ODBEmbeddedUnit extends ObjectDBUnit {
      * @throws java.lang.Exception
      */
     public ODBEmbeddedUnit(EJSONObject unitConf) throws Exception {
-        this.optHostFull = null;
-        this.optUser = unitConf.getString("user");
-        this.optPass = unitConf.getString("password");
         this.debug = false;
 
         // TODO meta entities handling/setup
         // ...
-        // entities setup (virtual tables)
-        EJSONArray array = unitConf.getArray("types");
-        int size = array.size();
-        if (size < (11 - 1)) {
-            for (int i = 0; i < size; i++) {
-                EJSONObject object = array.getObject(i);
-                boolean segmented = object.getBoolean("segmented");
-                if (!segmented) {
-                    EMS.put(object.getString("clazz"), null);
-                } else {
-                    // TODO (means > 10^6 items / table)
-                    // initially 2 layers are built (10^(6+2) items / virtual table)
+        if (unitConf.selectorExists("blocks")) {
 
+            this.optHostFull = null;
+            this.optUser = null;
+            this.optPass = null;
+
+            EJSONArray array = unitConf.getArray("blocks");
+            for (int i = 0; i < array.size(); i++) {
+                EJSONObject a = array.getObject(i);
+                ODBEmbeddedUnit u = new ODBEmbeddedUnit(a);
+                setKid("block" + i, u);
+                EJSONArray ents = a.getArray("entities");
+                for (int j = 0; j < ents.size(); j++) {
+                    BLOCK_MAPPINGS.put(ents.getString(j), "block" + i);
                 }
             }
+
         } else {
-            // TODO
-            blocks = (size / 10) + 1; // this is always >= 2
-            for (int i = 0; i < blocks; i++) {
-                ODBEmbeddedUnit u = new ODBEmbeddedUnit(optHostFull, optUser, optPass);
-                // TODO...
-            }
-            int r = (size % 10) + 1;
+            this.optHostFull = unitConf.getString("storage");
+            this.optUser = unitConf.getString("user");
+            this.optPass = unitConf.getString("password");
         }
+
     }
 
     @Override
@@ -123,12 +115,11 @@ public final class ODBEmbeddedUnit extends ObjectDBUnit {
             // also properties of the emf tree. The config file contains max items
             // per type so we can pre-compute the tree structure.
 
-            if (blocks > 1) {
+            if (hasKids()) {
 
-                for (int i = 0; i < blocks; i++) {
-                    ODBEmbeddedUnit u = new ODBEmbeddedUnit();
-                    KIDS.put("block" + i, u);
-                }
+                KIDS.entrySet().stream().map((entry) -> entry.getValue()).forEachOrdered((u) -> {
+                    u.initialize();
+                });
 
             } else {
                 Map<String, String> properties = new HashMap<>();
@@ -157,7 +148,7 @@ public final class ODBEmbeddedUnit extends ObjectDBUnit {
         if (debug) {
             return EMS.get(DEBUG_KEY);
         } else {
-            if (blocks > 1) {
+            if (hasKids()) {
                 final String kidKey = BLOCK_MAPPINGS.get(clazz.getName());
                 return KIDS.get(kidKey).em(clazz);
             } else {
