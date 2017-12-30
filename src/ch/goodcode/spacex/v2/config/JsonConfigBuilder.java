@@ -10,6 +10,7 @@ import ch.goodcode.libs.utils.dataspecs.EJSONObject;
 import ch.goodcode.spacex.v2.IV2Entity;
 import ch.goodcode.spacex.v2.compute.RegVar;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -34,7 +35,7 @@ public class JsonConfigBuilder {
     }
 
     private final String uid;
-    private final HashMap<String, ConfigHolder> holders = new HashMap<>();
+    private final ArrayList<ConfigHolder> holders = new ArrayList<>();
 
     public JsonConfigBuilder(String uid) {
         this.uid = uid;
@@ -50,57 +51,59 @@ public class JsonConfigBuilder {
     }
 
     /**
-     * 
+     *
      * @param clazz
      * @param expectedMaxSizeInMilions
-     * @param optimizationMod 
+     * @param optimizationMod
      */
     public final void registerClazzType(Class<? extends IV2Entity> clazz, int expectedMaxSizeInMilions, int optimizationMod) {
         String clazzname = clazz.getName();
-        holders.put(clazzname, new ConfigHolder(clazzname, expectedMaxSizeInMilions, optimizationMod));
+        holders.add(new ConfigHolder(clazzname, expectedMaxSizeInMilions, optimizationMod));
     }
 
     /**
-     * 
+     *
      * @param clazzname
      * @param expectedMaxSize
-     * @param optimizationMod 
+     * @param optimizationMod
      */
     public final void registerClazzType(String clazzname, int expectedMaxSize, int optimizationMod) {
-        holders.put(clazzname, new ConfigHolder(clazzname, expectedMaxSize, optimizationMod));
+        holders.add(new ConfigHolder(clazzname, expectedMaxSize, optimizationMod));
     }
 
     /**
-     * 
-     * @return 
+     *
+     * @return
      */
     public final EJSONObject compileConfig() {
 
         final EJSONObject conf = new EJSONObject();
 
         if (holders.size() > (11 - 1)) {
-            for (Map.Entry<String, ConfigHolder> entry : holders.entrySet()) {
-                String key = entry.getKey();
-                ConfigHolder value = entry.getValue();
-                if (value.expectedMaxSize > 1) {
-                    // TODO ???
-                    // we will have to subchild class ODBEMbeddedUnit
-                } else {
-                    switch (value.optimizationMod) {
-                        default:
-                            break;
+
+            int blocks = holders.size() / 9 + 1;
+            for (int i = 0; i < blocks; i++) {
+                for (int j = 0; j < 9 && (9*i+j) < holders.size(); j++) {
+                    ConfigHolder holder = holders.get(9*i+j);
+                    if (holder.expectedMaxSize > 1) {
+                        // TODO ???
+                        // we will have to subchild class ODBEMbeddedUnit
+                    } else {
+                        switch (holder.optimizationMod) {
+                            default:
+                                break;
+                        }
                     }
                 }
             }
+
         } else {
-            for (Map.Entry<String, ConfigHolder> entry : holders.entrySet()) {
-                String key = entry.getKey();
-                ConfigHolder value = entry.getValue();
-                if (value.expectedMaxSize > 1) {
+            for (ConfigHolder holder : holders) {
+                if (holder.expectedMaxSize > 1) {
                     // TODO ???
                     // we will have to subchild class ODBEMbeddedUnit
                 } else {
-                    switch (value.optimizationMod) {
+                    switch (holder.optimizationMod) {
                         default:
                             break;
                     }
@@ -113,8 +116,8 @@ public class JsonConfigBuilder {
     }
 
     /**
-     * 
-     * @param outputPath 
+     *
+     * @param outputPath
      */
     public final void compileAndPrintConfigFile(String outputPath) {
         EJSONObject compileConfig = compileConfig();
